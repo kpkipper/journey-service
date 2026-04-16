@@ -59,3 +59,7 @@ func (s *JourneyService) Update(ctx context.Context, id uuid.UUID, updated *mode
 func (s *JourneyService) Delete(ctx context.Context, id uuid.UUID) error {
 	return s.repo.Delete(ctx, id)
 }
+
+func (s *JourneyService) DeleteAll(ctx context.Context) error {
+	return s.repo.DeleteAll(ctx)
+}

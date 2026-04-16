@@ -122,3 +122,10 @@ func (h *JourneyHandler) Delete(c *fiber.Ctx) error {
 	}
 	return utils.Success(c, fiber.StatusOK, fiber.Map{})
 }
+
+func (h *JourneyHandler) DeleteAll(c *fiber.Ctx) error {
+	if err := h.svc.DeleteAll(c.Context()); err != nil {
+		return utils.Error(c, fiber.StatusInternalServerError, err.Error())
+	}
+	return utils.Success(c, fiber.StatusOK, nil)
+}

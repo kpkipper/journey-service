@@ -13,4 +13,5 @@ type JourneyRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*models.Journey, error)
 	Update(ctx context.Context, journey *models.Journey) error
 	Delete(ctx context.Context, id uuid.UUID) error
+	DeleteAll(ctx context.Context) error
 }

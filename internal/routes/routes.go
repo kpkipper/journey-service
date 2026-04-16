@@ -13,5 +13,6 @@ func Register(app *fiber.App, h *handlers.JourneyHandler) {
 	journeys.Get("/", h.List)
 	journeys.Get("/:id", h.GetByID)
 	journeys.Put("/:id", h.Update)
+	journeys.Delete("/", h.DeleteAll)
 	journeys.Delete("/:id", h.Delete)
 }

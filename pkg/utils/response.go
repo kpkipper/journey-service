@@ -25,6 +25,6 @@ func Error(c *fiber.Ctx, status int, message string) error {
 	return c.Status(status).JSON(Response{
 		Code:    fmt.Sprintf("JOURNEY-%d000", status),
 		Message: message,
-		Error:   fiber.Map{},
+		Error:   nil,
 	})
 }
