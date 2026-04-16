@@ -1,6 +1,8 @@
 package config
 
 import (
+	"errors"
+
 	"github.com/joho/godotenv"
 	"github.com/spf13/viper"
 )
@@ -16,10 +18,15 @@ func Load() (*Config, error) {
 	viper.AutomaticEnv()
 
 	viper.SetDefault("APP_PORT", "8080")
-	viper.SetDefault("DB_DSN", "host=localhost user=postgres password=postgres dbname=journey_db port=5432 sslmode=disable")
 
-	return &Config{
+	cfg := &Config{
 		AppPort: viper.GetString("APP_PORT"),
 		DBDSN:   viper.GetString("DB_DSN"),
-	}, nil
+	}
+
+	if cfg.DBDSN == "" {
+		return nil, errors.New("DB_DSN is required")
+	}
+
+	return cfg, nil
 }
