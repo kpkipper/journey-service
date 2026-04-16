@@ -1,0 +1,6 @@
+bin/
+.env
+.git/
+.claude/
+.vscode/
+*.md
