@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/kpkipper/journey-service/internal/models"
@@ -55,8 +56,8 @@ func (h *JourneyHandler) List(c *fiber.Ctx) error {
 		groupedMap[country].Plan = append(groupedMap[country].Plan, models.JourneyListItem{
 			ID:          j.ID,
 			Slug:        j.Slug,
-			Title:       j.Title,
-			Destination: j.Destination,
+			Title:       fmt.Sprintf("%s %d", j.Destination, j.DepartureDate.Year()),
+			Destination: fmt.Sprintf("%s, %s", j.Destination, j.Country),
 		})
 	}
 
