@@ -1,14 +1,25 @@
 package models
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
-	"github.com/google/uuid"
+	gonanoid "github.com/matoous/go-nanoid/v2"
 	"gorm.io/gorm"
 )
 
+const nanoidAlphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
+const nanoidLen = 10
+
+func newShortID() string {
+	id, _ := gonanoid.Generate(nanoidAlphabet, nanoidLen)
+	return id
+}
+
 type Journey struct {
-	ID            uuid.UUID      `gorm:"type:uuid;primaryKey" json:"id"`
+	ID            string         `gorm:"type:varchar(10);primaryKey" json:"id"`
+	Slug          string         `gorm:"type:varchar(100);uniqueIndex" json:"slug"`
 	Title         string         `gorm:"not null" json:"title"`
 	Destination   string         `gorm:"not null" json:"destination"`
 	Country       string         `json:"country"`
@@ -20,54 +31,58 @@ type Journey struct {
 	DeletedAt     gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
 }
 
+func toSlugPart(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	s = strings.ReplaceAll(s, ",", "-")
+	s = strings.ReplaceAll(s, " ", "")
+	return s
+}
+
 func (j *Journey) BeforeCreate(tx *gorm.DB) error {
-	if j.ID == uuid.Nil {
-		j.ID = uuid.New()
+	if j.ID == "" {
+		j.ID = newShortID()
 	}
+	j.Slug = fmt.Sprintf("%s-%s", toSlugPart(j.Destination), j.ID)
 	return nil
 }
 
 type ItineraryDay struct {
-	ID        uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
-	JourneyID uuid.UUID `gorm:"type:uuid;not null;index" json:"journey_id"`
-	Date      string    `gorm:"not null" json:"date"`
-	DateISO   time.Time `gorm:"not null" json:"date_iso"`
-	Title     string    `json:"title"`
-	Plans     []Plan    `gorm:"foreignKey:ItineraryDayID;constraint:OnDelete:CASCADE" json:"plans,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID        string         `gorm:"type:varchar(10);primaryKey" json:"-"`
+	JourneyID string         `gorm:"type:varchar(10);not null;index" json:"-"`
+	Date      string         `gorm:"not null" json:"date"`
+	DateISO   time.Time      `gorm:"not null" json:"date_iso"`
+	Title     string         `json:"title"`
+	Plans     []ActivityPlan `gorm:"foreignKey:ItineraryDayID;constraint:OnDelete:CASCADE" json:"plans,omitempty"`
 }
 
 func (d *ItineraryDay) BeforeCreate(tx *gorm.DB) error {
-	if d.ID == uuid.Nil {
-		d.ID = uuid.New()
+	if d.ID == "" {
+		d.ID = newShortID()
 	}
 	return nil
 }
 
-type Plan struct {
-	ID             uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
-	ItineraryDayID uuid.UUID `gorm:"type:uuid;not null;index" json:"itinerary_day_id"`
-	Time           string    `json:"time"`
-	Description    string    `gorm:"not null" json:"description"`
-	Country        string    `json:"country"`
-	Emoji          string    `json:"emoji"`
-	MapURL         string    `json:"map_url"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+type ActivityPlan struct {
+	ID             string `gorm:"type:varchar(10);primaryKey" json:"-"`
+	ItineraryDayID string `gorm:"type:varchar(10);not null;index" json:"-"`
+	Time           string `json:"time"`
+	Description    string `gorm:"not null" json:"description"`
+	Emoji          string `json:"emoji"`
+	MapURL         string `json:"map_url"`
 }
 
-func (p *Plan) BeforeCreate(tx *gorm.DB) error {
-	if p.ID == uuid.Nil {
-		p.ID = uuid.New()
+func (p *ActivityPlan) BeforeCreate(tx *gorm.DB) error {
+	if p.ID == "" {
+		p.ID = newShortID()
 	}
 	return nil
 }
 
 type JourneyListItem struct {
-	ID          uuid.UUID `json:"id"`
-	Title       string    `json:"title"`
-	Destination string    `json:"destination"`
+	ID          string `json:"id"`
+	Slug        string `json:"slug"`
+	Title       string `json:"title"`
+	Destination string `json:"destination"`
 }
 
 type JourneyByCountry struct {

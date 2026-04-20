@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"github.com/google/uuid"
 	"github.com/kpkipper/journey-service/internal/models"
 	"gorm.io/gorm"
 )
@@ -29,7 +28,7 @@ func (r *journeyGorm) List(ctx context.Context) ([]models.Journey, error) {
 	return journeys, err
 }
 
-func (r *journeyGorm) GetByID(ctx context.Context, id uuid.UUID) (*models.Journey, error) {
+func (r *journeyGorm) GetBySlug(ctx context.Context, slug string) (*models.Journey, error) {
 	var journey models.Journey
 	err := r.db.WithContext(ctx).
 		Preload("ItineraryDays", func(db *gorm.DB) *gorm.DB {
@@ -38,7 +37,7 @@ func (r *journeyGorm) GetByID(ctx context.Context, id uuid.UUID) (*models.Journe
 		Preload("ItineraryDays.Plans", func(db *gorm.DB) *gorm.DB {
 			return db.Order("time ASC")
 		}).
-		First(&journey, "id = ?", id).Error
+		First(&journey, "slug = ?", slug).Error
 
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
@@ -68,8 +67,8 @@ func (r *journeyGorm) Update(ctx context.Context, journey *models.Journey) error
 	})
 }
 
-func (r *journeyGorm) Delete(ctx context.Context, id uuid.UUID) error {
-	result := r.db.WithContext(ctx).Delete(&models.Journey{}, "id = ?", id)
+func (r *journeyGorm) Delete(ctx context.Context, slug string) error {
+	result := r.db.WithContext(ctx).Where("slug = ?", slug).Delete(&models.Journey{})
 	if result.Error != nil {
 		return result.Error
 	}

@@ -1,32 +1,45 @@
 package config
 
 import (
-	"errors"
+	"log"
 
 	"github.com/joho/godotenv"
-	"github.com/spf13/viper"
+	"github.com/kelseyhightower/envconfig"
 )
 
 type Config struct {
-	AppPort string
-	DBDSN   string
+	App   AppConfig
+	DBDSN Postgres
 }
 
-func Load() (*Config, error) {
-	_ = godotenv.Load()
+type AppConfig struct {
+	Port   int    `envconfig:"APP_PORT"`
+	Name   string `envconfig:"APP_NAME"`
+	ENV    string `envconfig:"APP_ENV"`
+	Prefix string `envconfig:"APP_PREFIX"`
+	APIKey string `envconfig:"APP_API_KEY"`
+}
 
-	viper.AutomaticEnv()
+type Postgres struct {
+	Host     string `envconfig:"POSTGRES_HOST"`
+	Port     string `envconfig:"POSTGRES_PORT"`
+	Password string `envconfig:"POSTGRES_PASSWORD"`
+	User     string `envconfig:"POSTGRES_USER"`
+	DBName   string `envconfig:"POSTGRES_DBNAME"`
+	SSLMode  string `envconfig:"POSTGRES_SSLMODE"`
+}
 
-	viper.SetDefault("APP_PORT", "8080")
+var config Config
 
-	cfg := &Config{
-		AppPort: viper.GetString("APP_PORT"),
-		DBDSN:   viper.GetString("DB_DSN"),
+func init() {
+	var err = godotenv.Load()
+
+	err = envconfig.Process("", &config)
+	if err != nil {
+		log.Fatalf("parse config error: %s", err.Error())
 	}
+}
 
-	if cfg.DBDSN == "" {
-		return nil, errors.New("DB_DSN is required")
-	}
-
-	return cfg, nil
+func Get() *Config {
+	return &config
 }

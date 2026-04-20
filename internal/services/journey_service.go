@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"github.com/google/uuid"
 	"github.com/kpkipper/journey-service/internal/models"
 	"github.com/kpkipper/journey-service/internal/repository"
 )
@@ -27,8 +26,8 @@ func (s *JourneyService) List(ctx context.Context) ([]models.Journey, error) {
 	return s.repo.List(ctx)
 }
 
-func (s *JourneyService) GetByID(ctx context.Context, id uuid.UUID) (*models.Journey, error) {
-	journey, err := s.repo.GetByID(ctx, id)
+func (s *JourneyService) GetBySlug(ctx context.Context, slug string) (*models.Journey, error) {
+	journey, err := s.repo.GetBySlug(ctx, slug)
 	if err != nil {
 		return nil, err
 	}
@@ -38,26 +37,24 @@ func (s *JourneyService) GetByID(ctx context.Context, id uuid.UUID) (*models.Jou
 	return journey, nil
 }
 
-func (s *JourneyService) Update(ctx context.Context, id uuid.UUID, updated *models.Journey) (*models.Journey, error) {
-	existing, err := s.repo.GetByID(ctx, id)
+func (s *JourneyService) Update(ctx context.Context, slug string, updated *models.Journey) error {
+	existing, err := s.repo.GetBySlug(ctx, slug)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if existing == nil {
-		return nil, ErrNotFound
+		return ErrNotFound
 	}
 
-	updated.ID = id
+	updated.ID = existing.ID
+	updated.Slug = existing.Slug
 	updated.CreatedAt = existing.CreatedAt
 
-	if err := s.repo.Update(ctx, updated); err != nil {
-		return nil, err
-	}
-	return s.repo.GetByID(ctx, id)
+	return s.repo.Update(ctx, updated)
 }
 
-func (s *JourneyService) Delete(ctx context.Context, id uuid.UUID) error {
-	return s.repo.Delete(ctx, id)
+func (s *JourneyService) Delete(ctx context.Context, slug string) error {
+	return s.repo.Delete(ctx, slug)
 }
 
 func (s *JourneyService) DeleteAll(ctx context.Context) error {

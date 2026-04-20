@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -19,24 +20,16 @@ import (
 )
 
 func main() {
-	logger.Init(os.Getenv("APP_ENV") != "production")
+	cfg := config.Get()
+	logger.Init(cfg.App.ENV != "production")
 	log := logger.Get()
 
-	cfg, err := config.Load()
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to load config")
-	}
-
-	db, err := database.Connect(cfg.DBDSN)
+	log.Info().Str("host", cfg.DBDSN.Host).Msg("connecting to database")
+	db, err := database.NewConnection(cfg.DBDSN)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to connect to database")
 	}
 	log.Info().Msg("database connected")
-
-	if err := database.Migrate(db); err != nil {
-		log.Fatal().Err(err).Msg("failed to run migrations")
-	}
-	log.Info().Msg("database migrated")
 
 	repo := repository.NewJourneyRepository(db)
 	svc := services.NewJourneyService(repo)
@@ -50,26 +43,32 @@ func main() {
 	middleware.Register(app)
 	routes.Register(app, handler)
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	setupGracefulShutdown(app)
+
+	addr := fmt.Sprintf(":%d", cfg.App.Port)
+	log.Info().Str("addr", addr).Msg("server starting")
+	if err := app.Listen(addr); err != nil {
+		log.Error().Err(err).Msg("server error")
+	}
+}
+
+func setupGracefulShutdown(app *fiber.App) {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
-		addr := ":" + cfg.AppPort
-		log.Info().Str("addr", addr).Msg("server starting")
-		if err := app.Listen(addr); err != nil {
-			log.Error().Err(err).Msg("server error")
+		<-c
+		log := logger.Get()
+		log.Info().Msg("shutting down server")
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		if err := app.ShutdownWithContext(ctx); err != nil {
+			log.Error().Err(err).Msg("server forced to shutdown")
 		}
+
+		log.Info().Msg("server exited")
+		os.Exit(0)
 	}()
-
-	<-quit
-	log.Info().Msg("shutting down server")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	if err := app.ShutdownWithContext(ctx); err != nil {
-		log.Error().Err(err).Msg("server forced to shutdown")
-	}
-
-	log.Info().Msg("server exited")
 }
