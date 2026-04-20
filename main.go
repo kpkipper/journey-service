@@ -31,6 +31,11 @@ func main() {
 	}
 	log.Info().Msg("database connected")
 
+	if err := database.Migrate(db); err != nil {
+		log.Fatal().Err(err).Msg("failed to migrate database")
+	}
+	log.Info().Msg("database migrated")
+
 	repo := repository.NewJourneyRepository(db)
 	svc := services.NewJourneyService(repo)
 	handler := handlers.NewJourneyHandler(svc)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/kpkipper/journey-service/config"
+	"github.com/kpkipper/journey-service/internal/models"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -20,4 +21,12 @@ func NewConnection(conf config.Postgres) (*gorm.DB, error) {
 		return db, err
 	}
 	return db, nil
+}
+
+func Migrate(db *gorm.DB) error {
+	return db.AutoMigrate(
+		&models.Journey{},
+		&models.ItineraryDay{},
+		&models.ActivityPlan{},
+	)
 }
