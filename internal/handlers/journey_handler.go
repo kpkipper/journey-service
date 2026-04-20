@@ -29,7 +29,7 @@ func (h *JourneyHandler) Create(c *fiber.Ctx) error {
 	if err := h.svc.Create(c.Context(), &journey); err != nil {
 		return utils.Error(c, fiber.StatusInternalServerError, err.Error())
 	}
-	return utils.Success(c, fiber.StatusCreated, nil)
+	return utils.Success(c, fiber.StatusCreated, fiber.Map{"slug": journey.Slug})
 }
 
 func (h *JourneyHandler) List(c *fiber.Ctx) error {
