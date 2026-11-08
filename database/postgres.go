@@ -23,10 +23,15 @@ func NewConnection(conf config.Postgres) (*gorm.DB, error) {
 	return db, nil
 }
 
-func Migrate(db *gorm.DB) error {
-	return db.AutoMigrate(
+// Models lists every model that must be migrated. Add new models here.
+func Models() []any {
+	return []any{
 		&models.Journey{},
 		&models.ItineraryDay{},
 		&models.ActivityPlan{},
-	)
+	}
+}
+
+func Migrate(db *gorm.DB) error {
+	return db.AutoMigrate(Models()...)
 }
