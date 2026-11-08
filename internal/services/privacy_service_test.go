@@ -9,6 +9,7 @@ import (
 	"github.com/kpkipper/journey-service/internal/models"
 	"github.com/kpkipper/journey-service/internal/repository"
 	"github.com/kpkipper/journey-service/internal/testutil"
+	"github.com/kpkipper/journey-service/internal/tripstatus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -55,6 +56,7 @@ type tripOpts struct {
 	visibility string
 	dep, ret   time.Time
 	hideLive   bool
+	draft      bool
 }
 
 // newTrip creates a trip with one day per date; each day has a visible plan and a hidden stay plan.
@@ -74,7 +76,7 @@ func (f *privacyFixture) newTrip(t *testing.T, o tripOpts) *models.Journey {
 	j := &models.Journey{
 		OwnerID: o.owner, Title: "Winter trip", Destination: "Nagoya", Country: "Japan", CoverURL: "c.jpg",
 		DepartureDate: o.dep, ReturnDate: o.ret, Visibility: o.visibility, Timezone: "Asia/Bangkok",
-		HideLiveStatus: o.hideLive, ItineraryDays: days,
+		HideLiveStatus: o.hideLive, IsDraft: o.draft, ItineraryDays: days,
 	}
 	require.NoError(t, f.db.Create(j).Error)
 	if o.owner != "" {
@@ -151,6 +153,7 @@ func TestPrivacyView(t *testing.T) {
 	privOngoing := trip(models.VisibilityPrivate, ongoingDates, false)
 	legacyOngoing := f.newTrip(t, tripOpts{visibility: models.VisibilityFollowers, dep: ongoingDates[0], ret: ongoingDates[1]})
 	legacyCompleted := f.newTrip(t, tripOpts{visibility: models.VisibilityPrivate, dep: completedDates[0], ret: completedDates[1]})
+	pubDraft := f.newTrip(t, tripOpts{owner: "owner", visibility: models.VisibilityPublic, dep: ongoingDates[0], ret: ongoingDates[1], draft: true})
 
 	tests := []struct {
 		name       string
@@ -175,7 +178,7 @@ func TestPrivacyView(t *testing.T) {
 		{"followers follower ongoing", folOngoing, "fol", false, false, "ongoing", "", liveNoToday, false},
 		{"followers follower upcoming", folUpcoming, "fol", false, false, "upcoming", "", liveNone, false},
 		{"followers follower completed", folCompleted, "fol", false, false, "completed", "", liveNone, false},
-		{"followers follower hide live", folOngoingHidden, "fol", false, false, "ongoing", "", liveNone, false},
+		{"followers follower hide live shows upcoming", folOngoingHidden, "fol", false, false, "upcoming", "", liveNone, false},
 		{"followers member hide live still live", folOngoingHidden, "trav", false, false, "ongoing", "traveler", liveWithToday, true},
 		{"link stranger upcoming", linkUpcoming, "", false, true, "upcoming", "", liveNone, false},
 		{"link stranger ongoing", linkOngoing, "str", false, true, "upcoming", "", liveNone, false},
@@ -192,6 +195,9 @@ func TestPrivacyView(t *testing.T) {
 		{"legacy anonymous ongoing is public redacted", legacyOngoing, "", false, true, "upcoming", "", liveNone, false},
 		{"legacy follower-ish user still stranger", legacyOngoing, "fol", false, true, "upcoming", "", liveNone, false},
 		{"legacy completed is public full", legacyCompleted, "str", false, false, "completed", "", liveNone, false},
+		{"draft stranger is planning redacted", pubDraft, "", false, true, "planning", "", liveNone, false},
+		{"draft follower is planning full", pubDraft, "fol", false, false, "planning", "", liveNone, false},
+		{"draft member is planning without live", pubDraft, "trav", false, false, "planning", "traveler", liveNone, true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -210,8 +216,6 @@ func TestPrivacyView(t *testing.T) {
 			assert.Equal(t, "Nagoya", v.Destination)
 			assert.Equal(t, "Japan", v.Country)
 			assert.Equal(t, "c.jpg", v.CoverURL)
-			assert.Equal(t, tc.j.DepartureDate.Format("2006-01"), v.MonthStart)
-			assert.Equal(t, tc.j.ReturnDate.Format("2006-01"), v.MonthEnd)
 			assert.Equal(t, tc.state, v.Status.State)
 			assert.Equal(t, tc.role, v.Role)
 			assert.Equal(t, tc.redacted, v.Redacted)
@@ -226,6 +230,8 @@ func TestPrivacyView(t *testing.T) {
 			}
 
 			if tc.redacted {
+				assert.Empty(t, v.MonthStart)
+				assert.Empty(t, v.MonthEnd)
 				assert.Nil(t, v.DepartureDate)
 				assert.Nil(t, v.ReturnDate)
 				assert.Nil(t, v.Days)
@@ -237,6 +243,8 @@ func TestPrivacyView(t *testing.T) {
 				return
 			}
 
+			assert.Equal(t, tc.j.DepartureDate.Format("2006-01"), v.MonthStart)
+			assert.Equal(t, tc.j.ReturnDate.Format("2006-01"), v.MonthEnd)
 			require.NotNil(t, v.DepartureDate)
 			require.NotNil(t, v.ReturnDate)
 			assert.True(t, tc.j.DepartureDate.Equal(*v.DepartureDate))
@@ -301,14 +309,57 @@ func TestPrivacyView(t *testing.T) {
 		for _, k := range []string{"departure_date", "return_date", "days", "members", "live"} {
 			assert.NotContains(t, m, k)
 		}
-		for _, k := range []string{"slug", "title", "destination", "country", "cover_url", "visibility", "owner", "status", "month_start", "month_end", "redacted", "role"} {
+		for _, k := range []string{"slug", "title", "destination", "country", "cover_url", "visibility", "owner", "status", "redacted", "role"} {
 			assert.Contains(t, m, k)
 		}
 		assert.NotContains(t, string(raw), "ongoing")
-		assert.NotContains(t, string(raw), "2026-12-12")
+		assert.NotContains(t, string(raw), "2026-12")
 		assert.NotContains(t, string(raw), "hotel")
-		assert.Equal(t, "2026-12", m["month_start"])
 		assert.Equal(t, true, m["redacted"])
+		assert.Equal(t, map[string]any{"state": "upcoming", "days_until": 0.0, "day_number": 0.0, "total_days": 0.0}, m["status"])
+	})
+
+	t.Run("cross-month ongoing trip leaks no month range to strangers", func(t *testing.T) {
+		// Nov 28 - Dec 16 viewed Dec 13: month_start 2026-11 + "upcoming" would imply "away now".
+		cross := f.newTrip(t, tripOpts{owner: "owner", visibility: models.VisibilityPublic, dep: utcDay(2026, 11, 28), ret: utcDay(2026, 12, 16)})
+		for _, viewer := range []string{"", "str", "inv"} {
+			v, err := f.svc.View(ctx, viewer, cross.Slug)
+			require.NoError(t, err)
+			assert.True(t, v.Redacted)
+			raw, err := json.Marshal(v)
+			require.NoError(t, err)
+			var m map[string]any
+			require.NoError(t, json.Unmarshal(raw, &m))
+			assert.NotContains(t, m, "month_start")
+			assert.NotContains(t, m, "month_end")
+			assert.NotContains(t, string(raw), "ongoing")
+			assert.NotContains(t, string(raw), "2026-11")
+			assert.NotContains(t, string(raw), "2026-12")
+		}
+		// A follower still sees the months.
+		v, err := f.svc.View(ctx, "fol", cross.Slug)
+		require.NoError(t, err)
+		assert.Equal(t, "2026-11", v.MonthStart)
+		assert.Equal(t, "2026-12", v.MonthEnd)
+	})
+
+	t.Run("hide live status hides day X of Y from followers but keeps dates", func(t *testing.T) {
+		v, err := f.svc.View(ctx, "fol", folOngoingHidden.Slug)
+		require.NoError(t, err)
+		assert.False(t, v.Redacted)
+		assert.Equal(t, tripstatus.Status{State: "upcoming"}, v.Status)
+		assert.Nil(t, v.Live)
+		require.NotNil(t, v.DepartureDate)
+		require.NotNil(t, v.ReturnDate)
+		raw, err := json.Marshal(v)
+		require.NoError(t, err)
+		assert.NotContains(t, string(raw), "ongoing")
+		assert.NotContains(t, string(raw), `"live"`)
+
+		// Members still get the real status.
+		v, err = f.svc.View(ctx, "trav", folOngoingHidden.Slug)
+		require.NoError(t, err)
+		assert.Equal(t, tripstatus.Status{State: "ongoing", DayNumber: 2, TotalDays: 5}, v.Status)
 	})
 
 	t.Run("full view JSON uses snake_case keys", func(t *testing.T) {
@@ -408,6 +459,23 @@ func TestPrivacyRelationAndCanSee(t *testing.T) {
 			j := &models.Journey{OwnerID: "owner", Visibility: vis}
 			assert.Equal(t, want, f.svc.CanSee(rel, j), "%s/%s", vis, rel)
 			assert.True(t, f.svc.CanSee(rel, &models.Journey{Visibility: vis}), "legacy %s/%s", vis, rel)
+		}
+	}
+}
+
+func TestPrivacyListable(t *testing.T) {
+	f := newPrivacyFixture(t)
+	want := map[string]map[string]bool{
+		models.VisibilityPublic:    {RelMember: true, RelFollower: true, RelStranger: true},
+		models.VisibilityLink:      {RelMember: true, RelFollower: false, RelStranger: false},
+		models.VisibilityFollowers: {RelMember: true, RelFollower: true, RelStranger: false},
+		models.VisibilityPrivate:   {RelMember: true, RelFollower: false, RelStranger: false},
+	}
+	for vis, byRel := range want {
+		for rel, w := range byRel {
+			assert.Equal(t, w, f.svc.Listable(rel, &models.Journey{OwnerID: "owner", Visibility: vis}), "%s/%s", vis, rel)
+			// Legacy trips are listable as public, whatever their stored visibility.
+			assert.True(t, f.svc.Listable(rel, &models.Journey{Visibility: vis}), "legacy %s/%s", vis, rel)
 		}
 	}
 }

@@ -17,7 +17,8 @@ const (
 )
 
 // JourneyView is a trip as one viewer may see it. Redacted views (stranger,
-// trip not completed) omit the nil fields entirely from JSON.
+// trip not completed) omit the empty fields (months, dates, days, members, live)
+// entirely from JSON.
 type JourneyView struct {
 	Slug          string                `json:"slug"`
 	Title         string                `json:"title"`
@@ -27,8 +28,8 @@ type JourneyView struct {
 	Visibility    string                `json:"visibility"`
 	Owner         models.PublicProfile  `json:"owner"`
 	Status        tripstatus.Status     `json:"status"`
-	MonthStart    string                `json:"month_start"`
-	MonthEnd      string                `json:"month_end"`
+	MonthStart    string                `json:"month_start,omitempty"` // "YYYY-MM"; empty when redacted
+	MonthEnd      string                `json:"month_end,omitempty"`   // "YYYY-MM"; empty when redacted
 	DepartureDate *time.Time            `json:"departure_date,omitempty"`
 	ReturnDate    *time.Time            `json:"return_date,omitempty"`
 	Days          []models.ItineraryDay `json:"days,omitempty"`
@@ -104,6 +105,15 @@ func (s *PrivacyService) CanSee(rel string, j *models.Journey) bool {
 	}
 }
 
+// Listable reports whether the trip may appear in lists for this viewer: link
+// trips are listed only for members. Legacy trips are listable as public.
+func (s *PrivacyService) Listable(rel string, j *models.Journey) bool {
+	if !s.CanSee(rel, j) {
+		return false
+	}
+	return j.OwnerID == "" || j.Visibility != models.VisibilityLink || rel == RelMember
+}
+
 // View loads the trip by slug for the viewer. A trip the viewer may not see is ErrNotFound.
 func (s *PrivacyService) View(ctx context.Context, viewerID, slug string) (*JourneyView, error) {
 	a, err := s.Access.Load(ctx, slug, viewerID)
@@ -120,8 +130,9 @@ func (s *PrivacyService) View(ctx context.Context, viewerID, slug string) (*Jour
 	return v, nil
 }
 
-// ViewOf builds the view of an already-loaded trip (list endpoints). ok is false
-// when the viewer may not see it. Days come from j.ItineraryDays as loaded.
+// ViewOf builds the view of an already-loaded trip. ok means the viewer may open
+// the trip by slug — not that it may appear in lists; list endpoints must also
+// check Listable. Days come from j.ItineraryDays as loaded.
 func (s *PrivacyService) ViewOf(ctx context.Context, viewerID string, j *models.Journey) (*JourneyView, bool, error) {
 	a, err := s.Access.ForJourney(ctx, j, viewerID)
 	if err != nil {
@@ -145,17 +156,11 @@ func (s *PrivacyService) view(ctx context.Context, viewerID string, a *Access) (
 		return nil, false, err
 	}
 	status := tripstatus.Compute(j.DepartureDate, j.ReturnDate, j.Timezone, j.IsDraft, s.Now())
-	start, end := j.DepartureDate.UTC(), j.ReturnDate.UTC()
-	if end.Before(start) {
-		end = start
-	}
 
 	v := &JourneyView{
 		Slug: j.Slug, Title: j.Title, Destination: j.Destination, Country: j.Country, CoverURL: j.CoverURL,
 		Visibility: j.Visibility,
 		Owner:      owner.profile,
-		MonthStart: start.Format("2006-01"),
-		MonthEnd:   end.Format("2006-01"),
 		Role:       a.Role,
 	}
 	if j.OwnerID == "" {
@@ -163,17 +168,28 @@ func (s *PrivacyService) view(ctx context.Context, viewerID string, a *Access) (
 	}
 
 	if rel == RelStranger && status.State != "completed" {
-		// Never reveal that the trip is happening now, nor any exact date.
-		state := status.State
-		if state == "ongoing" {
-			state = "upcoming"
+		// Never reveal that the trip is happening now: no exact dates, no month
+		// range (a past month_start + "upcoming" would imply "away now"), no
+		// counters. Only planning (draft) or upcoming is ever shown.
+		state := "upcoming"
+		if j.IsDraft {
+			state = "planning"
 		}
 		v.Status = tripstatus.Status{State: state}
 		v.Redacted = true
 		return v, true, nil
 	}
 
+	start, end := j.DepartureDate.UTC(), j.ReturnDate.UTC()
+	if end.Before(start) {
+		end = start
+	}
+	v.MonthStart, v.MonthEnd = start.Format("2006-01"), end.Format("2006-01")
 	v.Status = status
+	if rel == RelFollower && j.HideLiveStatus && status.State == "ongoing" {
+		// The owner hid live status: followers keep the dates but not "day X of Y".
+		v.Status = tripstatus.Status{State: "upcoming"}
+	}
 	dep, ret := j.DepartureDate, j.ReturnDate
 	v.DepartureDate, v.ReturnDate = &dep, &ret
 	v.Days = filterDays(j.ItineraryDays, rel == RelMember)
