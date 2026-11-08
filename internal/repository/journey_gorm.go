@@ -59,8 +59,16 @@ func (r *journeyGorm) GetBySlug(ctx context.Context, slug string) (*models.Journ
 
 func (r *journeyGorm) Update(ctx context.Context, journey *models.Journey) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Omit("ItineraryDays").Save(journey).Error; err != nil {
-			return err
+		// Only the full-PUT columns; cover_url, editors_can_invite, owner, slug and
+		// deleted_at are never written here, and a missing/soft-deleted row is not resurrected.
+		res := tx.Model(&models.Journey{}).Where("id = ?", journey.ID).
+			Select("title", "destination", "country", "departure_date", "return_date").
+			Updates(journey)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return gorm.ErrRecordNotFound
 		}
 
 		// Delete existing days (cascade deletes plans)

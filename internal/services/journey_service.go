@@ -22,6 +22,9 @@ func NewJourneyService(repo repository.JourneyRepository, access *AccessService)
 }
 
 func (s *JourneyService) Create(ctx context.Context, ownerID string, journey *models.Journey) error {
+	if err := validateCover(journey); err != nil {
+		return err
+	}
 	if err := validateJourney(journey); err != nil {
 		return err
 	}
@@ -61,51 +64,38 @@ func (s *JourneyService) GetBySlug(ctx context.Context, slug string) (*models.Jo
 	return journey, nil
 }
 
-// owned loads the journey and checks userID owns it. Journeys with an empty
-// OwnerID (legacy) are owned by nobody.
-func (s *JourneyService) owned(ctx context.Context, userID, slug string) (*models.Journey, error) {
-	existing, err := s.repo.GetBySlug(ctx, slug)
-	if err != nil {
-		return nil, err
-	}
-	if existing == nil {
-		return nil, ErrNotFound
-	}
-	if existing.OwnerID == "" || existing.OwnerID != userID {
-		return nil, ErrForbidden
-	}
-	return existing, nil
-}
-
+// Update is the owner-only full replace of title, destination, country, dates and the
+// day/plan tree. cover_url and editors_can_invite are PATCH-only and left untouched.
 func (s *JourneyService) Update(ctx context.Context, userID, slug string, updated *models.Journey) error {
 	a, err := s.access.Load(ctx, slug, userID)
 	if err != nil {
 		return err
 	}
-	if !a.CanEdit() {
+	if !a.IsOwner() {
 		return ErrForbidden
 	}
-	existing := a.Journey
 	if err := validateJourney(updated); err != nil {
 		return err
 	}
-
-	updated.ID = existing.ID
-	updated.Slug = existing.Slug
-	updated.CreatedAt = existing.CreatedAt
-	updated.OwnerID = existing.OwnerID
-	updated.DeletedAt = gorm.DeletedAt{}
-	if !a.IsOwner() {
-		updated.EditorsCanInvite = existing.EditorsCanInvite
-	}
+	updated.ID = a.Journey.ID
 	resetChildren(updated)
 
-	return s.repo.Update(ctx, updated)
+	if err := s.repo.Update(ctx, updated); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrNotFound
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *JourneyService) Delete(ctx context.Context, userID, slug string) error {
-	if _, err := s.owned(ctx, userID, slug); err != nil {
+	a, err := s.access.Load(ctx, slug, userID)
+	if err != nil {
 		return err
+	}
+	if !a.IsOwner() {
+		return ErrForbidden
 	}
 	return s.repo.Delete(ctx, slug)
 }
