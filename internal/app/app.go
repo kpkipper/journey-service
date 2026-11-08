@@ -30,7 +30,11 @@ func New(d Deps) *fiber.App {
 	authRepo := repository.NewAuthRepository(d.DB)
 
 	memberRepo := repository.NewMemberRepository(d.DB)
-	accessSvc := services.NewAccessService(journeyRepo, memberRepo)
+	followRepo := repository.NewFollowRepository(d.DB)
+	accessSvc := services.NewAccessService(journeyRepo, memberRepo).WithFollows(followRepo)
+	privacySvc := services.NewPrivacyService(services.PrivacyDeps{
+		Access: accessSvc, Follows: followRepo, Members: memberRepo, Users: userRepo, Now: d.Now,
+	})
 	journeySvc := services.NewJourneyService(journeyRepo, accessSvc)
 	itinerarySvc := services.NewItineraryService(accessSvc, repository.NewItineraryRepository(d.DB), journeyRepo)
 	memberSvc := services.NewMemberService(services.MemberDeps{
@@ -58,12 +62,13 @@ func New(d Deps) *fiber.App {
 	})
 	middleware.Register(app)
 	routes.Register(app,
-		handlers.NewJourneyHandler(journeySvc, memberSvc),
+		handlers.NewJourneyHandler(journeySvc, privacySvc),
 		handlers.NewAuthHandler(authSvc),
 		handlers.NewUserHandler(userSvc),
 		handlers.NewMemberHandler(memberSvc),
 		handlers.NewItineraryHandler(itinerarySvc),
 		middleware.RequireAuth(authSvc),
+		middleware.OptionalAuth(authSvc),
 	)
 	return app
 }

@@ -50,3 +50,28 @@ func CurrentUserID(c *fiber.Ctx) string {
 	id, _ := c.Locals(userIDKey).(string)
 	return id
 }
+
+// OptionalAuth sets the user ID when the request carries a valid session token.
+// A missing, invalid or expired token is not an error: the request goes on as
+// anonymous. Only a failing lookup (not a bad token) is a 500.
+func OptionalAuth(svc *services.AuthService) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		token := BearerToken(c)
+		if token == "" {
+			return c.Next()
+		}
+		user, err := svc.Authenticate(c.Context(), token)
+		if err != nil {
+			if errors.Is(err, services.ErrUnauthorized) {
+				return c.Next()
+			}
+			logger.Get().Error().Err(err).
+				Str("request_id", c.GetRespHeader("X-Request-ID")).
+				Str("path", c.Path()).
+				Msg("authenticate failed")
+			return utils.Error(c, fiber.StatusInternalServerError, "internal server error")
+		}
+		c.Locals(userIDKey, user.ID)
+		return c.Next()
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"github.com/kpkipper/journey-service/internal/auth"
 	"github.com/kpkipper/journey-service/internal/models"
 	"github.com/kpkipper/journey-service/internal/repository"
+	"github.com/kpkipper/journey-service/internal/tripstatus"
 	"gorm.io/gorm"
 )
 
@@ -54,13 +55,14 @@ type InviteView struct {
 
 // MyJourney is a trip the user owns or has joined, with the user's role in it.
 type MyJourney struct {
-	Slug          string    `json:"slug"`
-	Title         string    `json:"title"`
-	Destination   string    `json:"destination"`
-	DepartureDate time.Time `json:"departure_date"`
-	ReturnDate    time.Time `json:"return_date"`
-	CoverURL      string    `json:"cover_url"`
-	Role          string    `json:"role"`
+	Slug          string            `json:"slug"`
+	Title         string            `json:"title"`
+	Destination   string            `json:"destination"`
+	DepartureDate time.Time         `json:"departure_date"`
+	ReturnDate    time.Time         `json:"return_date"`
+	CoverURL      string            `json:"cover_url"`
+	Role          string            `json:"role"`
+	Status        tripstatus.Status `json:"status"`
 }
 
 func normalizeUsername(u string) string { return strings.ToLower(strings.TrimSpace(u)) }
@@ -91,7 +93,7 @@ func (s *MemberService) authorizeInvite(ctx context.Context, actorID, slug, role
 		return nil, err
 	}
 	if !a.CanInvite() {
-		return nil, ErrForbidden
+		return nil, s.Access.Deny(ctx, a, actorID)
 	}
 	if err := validMemberRole(role); err != nil {
 		return nil, err
@@ -168,7 +170,7 @@ func (s *MemberService) ListMembers(ctx context.Context, actorID, slug string) (
 		return nil, err
 	}
 	if !a.IsMember() {
-		return nil, ErrForbidden
+		return nil, s.Access.Deny(ctx, a, actorID)
 	}
 	out, err := s.ownerView(ctx, a.Journey)
 	if err != nil {
@@ -245,6 +247,7 @@ func (s *MemberService) MyJourneys(ctx context.Context, userID string) ([]MyJour
 			Slug: j.Slug, Title: j.Title, Destination: j.Destination,
 			DepartureDate: j.DepartureDate, ReturnDate: j.ReturnDate,
 			CoverURL: j.CoverURL, Role: role,
+			Status: tripstatus.Compute(j.DepartureDate, j.ReturnDate, j.Timezone, j.IsDraft, s.Now()),
 		})
 	}
 	for _, j := range owned {
@@ -337,7 +340,7 @@ func (s *MemberService) ownerTarget(ctx context.Context, actorID, slug, username
 		return nil, err
 	}
 	if !a.IsOwner() {
-		return nil, ErrForbidden
+		return nil, s.Access.Deny(ctx, a, actorID)
 	}
 	u, err := s.Users.GetByUsername(ctx, normalizeUsername(username))
 	if err != nil {
@@ -410,7 +413,7 @@ func (s *MemberService) RevokeInviteLink(ctx context.Context, actorID, slug, lin
 		return err
 	}
 	if !a.IsOwner() {
-		return ErrForbidden
+		return s.Access.Deny(ctx, a, actorID)
 	}
 	l, err := s.Members.GetInviteLink(ctx, a.Journey.ID, linkID)
 	if err != nil {
@@ -428,7 +431,7 @@ func (s *MemberService) ListInviteLinks(ctx context.Context, actorID, slug strin
 		return nil, err
 	}
 	if !a.CanInvite() {
-		return nil, ErrForbidden
+		return nil, s.Access.Deny(ctx, a, actorID)
 	}
 	return s.Members.ListInviteLinks(ctx, a.Journey.ID)
 }

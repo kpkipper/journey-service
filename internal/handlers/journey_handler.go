@@ -12,17 +12,11 @@ import (
 
 type JourneyHandler struct {
 	svc     *services.JourneyService
-	members *services.MemberService
+	privacy *services.PrivacyService
 }
 
-func NewJourneyHandler(svc *services.JourneyService, members *services.MemberService) *JourneyHandler {
-	return &JourneyHandler{svc: svc, members: members}
-}
-
-// journeyDetail is the public journey with its owner and joined members.
-type journeyDetail struct {
-	*models.Journey
-	Members []models.MemberView `json:"members"`
+func NewJourneyHandler(svc *services.JourneyService, privacy *services.PrivacyService) *JourneyHandler {
+	return &JourneyHandler{svc: svc, privacy: privacy}
 }
 
 func (h *JourneyHandler) Create(c *fiber.Ctx) error {
@@ -40,7 +34,11 @@ func (h *JourneyHandler) Create(c *fiber.Ctx) error {
 	return utils.Success(c, fiber.StatusCreated, fiber.Map{"slug": journey.Slug})
 }
 
+// List groups the trips the viewer may see in lists by country, newest created
+// first. Items are built from the viewer's JourneyView, so a redacted trip never
+// carries dates (not even through the title).
 func (h *JourneyHandler) List(c *fiber.Ctx) error {
+	viewerID := middleware.CurrentUserID(c)
 	journeys, err := h.svc.List(c.Context())
 	if err != nil {
 		return respondError(c, err)
@@ -48,8 +46,23 @@ func (h *JourneyHandler) List(c *fiber.Ctx) error {
 
 	groupedMap := map[string]*models.JourneyByCountry{}
 	order := []string{}
-	for _, j := range journeys {
-		country := j.Country
+	for i := range journeys {
+		j := &journeys[i]
+		v, ok, err := h.privacy.ViewOf(c.Context(), viewerID, j)
+		if err != nil {
+			return respondError(c, err)
+		}
+		if !ok {
+			continue
+		}
+		rel, err := h.privacy.Relation(c.Context(), viewerID, j, v.Role)
+		if err != nil {
+			return respondError(c, err)
+		}
+		if !h.privacy.Listable(rel, j) {
+			continue
+		}
+		country := v.Country
 		if country == "" {
 			country = "Other"
 		}
@@ -60,11 +73,17 @@ func (h *JourneyHandler) List(c *fiber.Ctx) error {
 			}
 			order = append(order, country)
 		}
+		title := v.Title
+		if !v.Redacted {
+			title = fmt.Sprintf("%s %d", v.Destination, v.DepartureDate.Year())
+		}
 		groupedMap[country].Plan = append(groupedMap[country].Plan, models.JourneyListItem{
 			ID:          j.ID,
-			Slug:        j.Slug,
-			Title:       fmt.Sprintf("%s %d", j.Destination, j.DepartureDate.Year()),
-			Destination: fmt.Sprintf("%s, %s", j.Destination, j.Country),
+			Slug:        v.Slug,
+			Title:       title,
+			Destination: fmt.Sprintf("%s, %s", v.Destination, v.Country),
+			CoverURL:    v.CoverURL,
+			Status:      v.Status.State,
 		})
 	}
 
@@ -82,18 +101,11 @@ func (h *JourneyHandler) GetBySlug(c *fiber.Ctx) error {
 		return utils.Error(c, fiber.StatusBadRequest, "invalid journey slug")
 	}
 
-	journey, err := h.svc.GetBySlug(c.Context(), slug)
+	view, err := h.privacy.View(c.Context(), middleware.CurrentUserID(c), slug)
 	if err != nil {
 		return respondError(c, err)
 	}
-	members, err := h.members.PublicMembers(c.Context(), slug)
-	if err != nil {
-		return respondError(c, err)
-	}
-	if members == nil {
-		members = []models.MemberView{}
-	}
-	return utils.Success(c, fiber.StatusOK, journeyDetail{Journey: journey, Members: members})
+	return utils.Success(c, fiber.StatusOK, view)
 }
 
 func (h *JourneyHandler) Update(c *fiber.Ctx) error {

@@ -25,7 +25,7 @@ func TestHTTP_FullUpdateIsOwnerOnlyAndKeepsPatchOnlyFields(t *testing.T) {
 	data := e.getTrip(t, slug)
 	assert.Equal(t, "New", data["title"])
 	assert.Equal(t, "https://x.test/c.jpg", data["cover_url"])
-	assert.Equal(t, false, data["editors_can_invite"])
+	assert.False(t, e.dbJourney(t, slug).EditorsCanInvite)
 
 	status, _, _ = e.do(t, "DELETE", api+"/journeys/"+slug, alice, "")
 	require.Equal(t, 200, status)

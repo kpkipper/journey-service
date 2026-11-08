@@ -70,16 +70,20 @@ func NewPrivacyService(d PrivacyDeps) *PrivacyService {
 // Relation classifies the viewer. role is the viewer's Access.Role. On a legacy
 // trip (no owner) everyone is a stranger.
 func (s *PrivacyService) Relation(ctx context.Context, viewerID string, j *models.Journey, role string) (string, error) {
+	return relationOf(ctx, s.Follows, viewerID, j, role)
+}
+
+func relationOf(ctx context.Context, follows repository.FollowRepository, viewerID string, j *models.Journey, role string) (string, error) {
 	if j.OwnerID == "" {
 		return RelStranger, nil
 	}
 	if role != "" {
 		return RelMember, nil
 	}
-	if viewerID == "" {
+	if viewerID == "" || follows == nil {
 		return RelStranger, nil
 	}
-	following, err := s.Follows.IsFollowing(ctx, viewerID, j.OwnerID)
+	following, err := follows.IsFollowing(ctx, viewerID, j.OwnerID)
 	if err != nil {
 		return "", err
 	}
@@ -91,7 +95,9 @@ func (s *PrivacyService) Relation(ctx context.Context, viewerID string, j *model
 
 // CanSee reports whether a viewer with relation rel may see the trip at all.
 // Legacy trips are public; unknown visibility values fail closed (members only).
-func (s *PrivacyService) CanSee(rel string, j *models.Journey) bool {
+func (s *PrivacyService) CanSee(rel string, j *models.Journey) bool { return canSee(rel, j) }
+
+func canSee(rel string, j *models.Journey) bool {
 	if j.OwnerID == "" {
 		return true
 	}

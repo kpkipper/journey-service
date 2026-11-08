@@ -94,9 +94,12 @@ func TestPatchJourney(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, got.EditorsCanInvite)
 
-	for _, u := range []string{"trav", "out", ""} {
+	_, err = e.svc.PatchJourney(e.ctx, "trav", j.Slug, JourneyPatch{Title: sp("x")})
+	assert.ErrorIs(t, err, ErrForbidden, "trav")
+	// Non-members cannot see a followers trip, so it does not exist for them.
+	for _, u := range []string{"out", ""} {
 		_, err = e.svc.PatchJourney(e.ctx, u, j.Slug, JourneyPatch{Title: sp("x")})
-		assert.ErrorIs(t, err, ErrForbidden, u)
+		assert.ErrorIs(t, err, ErrNotFound, u)
 	}
 	_, err = e.svc.PatchJourney(e.ctx, "alice", "nope", JourneyPatch{Title: sp("x")})
 	assert.ErrorIs(t, err, ErrNotFound)

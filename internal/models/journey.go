@@ -101,6 +101,8 @@ type JourneyListItem struct {
 	Slug        string `json:"slug"`
 	Title       string `json:"title"`
 	Destination string `json:"destination"`
+	CoverURL    string `json:"cover_url"`
+	Status      string `json:"status"`
 }
 
 type JourneyByCountry struct {

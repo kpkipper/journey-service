@@ -61,7 +61,7 @@ func (s *ItineraryService) editable(ctx context.Context, userID, slug string) (*
 		return nil, err
 	}
 	if !a.CanEdit() {
-		return nil, ErrForbidden
+		return nil, s.access.Deny(ctx, a, userID)
 	}
 	return a, nil
 }

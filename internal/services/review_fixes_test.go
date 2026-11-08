@@ -28,7 +28,7 @@ func TestFullUpdateOwnerOnly(t *testing.T) {
 
 	assert.ErrorIs(t, e.journeys.Update(e.ctx, "edtr", j.Slug, body()), ErrForbidden)
 	assert.ErrorIs(t, e.journeys.Update(e.ctx, "trav", j.Slug, body()), ErrForbidden)
-	assert.ErrorIs(t, e.journeys.Update(e.ctx, "out", j.Slug, body()), ErrForbidden)
+	assert.ErrorIs(t, e.journeys.Update(e.ctx, "out", j.Slug, body()), ErrNotFound)
 	assert.Equal(t, "Trip", e.reload(j).Title)
 
 	// Owner: hostile body cannot change id/owner/deleted_at, nor the PATCH-only fields.
@@ -42,7 +42,7 @@ func TestFullUpdateOwnerOnly(t *testing.T) {
 	assert.Equal(t, "https://x.test/c.jpg", got.CoverURL, "PUT does not touch cover_url")
 
 	assert.ErrorIs(t, e.journeys.Delete(e.ctx, "edtr", j.Slug), ErrForbidden)
-	assert.ErrorIs(t, e.journeys.Delete(e.ctx, "out", j.Slug), ErrForbidden)
+	assert.ErrorIs(t, e.journeys.Delete(e.ctx, "out", j.Slug), ErrNotFound)
 	require.NoError(t, e.journeys.Delete(e.ctx, "alice", j.Slug))
 	assert.ErrorIs(t, e.journeys.Delete(e.ctx, "alice", j.Slug), ErrNotFound)
 }

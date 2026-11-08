@@ -152,9 +152,9 @@ func TestInvite_Permissions(t *testing.T) {
 	_, err = e.svc.Invite(ctx, "edtr", closed.Slug, "target", models.RoleTraveler)
 	assert.ErrorIs(t, err, ErrForbidden)
 	_, err = e.svc.Invite(ctx, "inv", closed.Slug, "target", models.RoleTraveler)
-	assert.ErrorIs(t, err, ErrForbidden)
+	assert.ErrorIs(t, err, ErrNotFound, "invited-only is not a member and cannot see a followers trip")
 	_, err = e.svc.Invite(ctx, "target", closed.Slug, "target", models.RoleTraveler)
-	assert.ErrorIs(t, err, ErrForbidden)
+	assert.ErrorIs(t, err, ErrNotFound)
 
 	_, err = e.svc.Invite(ctx, "edtr", open.Slug, "target", models.RoleEditor)
 	assert.ErrorIs(t, err, ErrForbidden)
@@ -296,7 +296,7 @@ func TestListMembers_OnlyMembers(t *testing.T) {
 	e.member(j, "inv", models.RoleTraveler, models.StatusInvited)
 	for _, u := range []string{"inv", "out", ""} {
 		_, err := e.svc.ListMembers(ctx, u, j.Slug)
-		assert.ErrorIs(t, err, ErrForbidden, u)
+		assert.ErrorIs(t, err, ErrNotFound, u)
 	}
 }
 
@@ -351,7 +351,7 @@ func TestInviteLink(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, links, 2)
 	_, err = e.svc.ListInviteLinks(ctx, "dave", j.Slug)
-	assert.ErrorIs(t, err, ErrForbidden)
+	assert.ErrorIs(t, err, ErrNotFound)
 
 	// Expiry: exactly at ExpiresAt is expired.
 	e.now = e.now.Add(InviteLinkTTL)

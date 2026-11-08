@@ -16,10 +16,35 @@ type Access struct {
 type AccessService struct {
 	journeys repository.JourneyRepository
 	members  repository.MemberRepository
+	follows  repository.FollowRepository // optional; nil means nobody follows anybody
 }
 
 func NewAccessService(j repository.JourneyRepository, m repository.MemberRepository) *AccessService {
 	return &AccessService{journeys: j, members: m}
+}
+
+// WithFollows lets Deny tell followers from strangers; without it everyone who
+// is not a member counts as a stranger.
+func (s *AccessService) WithFollows(f repository.FollowRepository) *AccessService {
+	s.follows = f
+	return s
+}
+
+// Deny is the error for an actor who lacks the rights for a write. A non-member
+// who may not even see the trip gets ErrNotFound (the trip must not reveal
+// itself); anyone else gets ErrForbidden.
+func (s *AccessService) Deny(ctx context.Context, a *Access, userID string) error {
+	if a.IsMember() {
+		return ErrForbidden
+	}
+	rel, err := relationOf(ctx, s.follows, userID, a.Journey, a.Role)
+	if err != nil {
+		return err
+	}
+	if !canSee(rel, a.Journey) {
+		return ErrNotFound
+	}
+	return ErrForbidden
 }
 
 // Load resolves the user's role in the trip. userID may be empty (anonymous).

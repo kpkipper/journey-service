@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const journeyBody = `{"title":"Japan","destination":"Tokyo","country":"Japan","departure_date":"2026-06-01T00:00:00Z","return_date":"2026-06-07T00:00:00Z"}`
+const journeyBody = `{"visibility":"public","title":"Japan","destination":"Tokyo","country":"Japan","departure_date":"2026-06-01T00:00:00Z","return_date":"2026-06-07T00:00:00Z"}`
 
 func (e *env) createJourney(t *testing.T, token string) string {
 	t.Helper()
@@ -21,9 +21,16 @@ func (e *env) createJourney(t *testing.T, token string) string {
 
 func (e *env) ownerOf(t *testing.T, slug string) string {
 	t.Helper()
-	status, body, raw := e.do(t, "GET", "/api/v1/journeys/"+slug, "", "")
-	require.Equal(t, 200, status, raw)
-	return body["data"].(map[string]any)["owner_id"].(string)
+	var j models.Journey
+	require.NoError(t, e.db.First(&j, "slug = ?", slug).Error)
+	return j.OwnerID
+}
+
+func (e *env) dbJourney(t *testing.T, slug string) models.Journey {
+	t.Helper()
+	var j models.Journey
+	require.NoError(t, e.db.First(&j, "slug = ?", slug).Error)
+	return j
 }
 
 func (e *env) userID(t *testing.T, token string) string {
@@ -46,7 +53,7 @@ func TestHTTP_CreateIgnoresClientOwnerID(t *testing.T) {
 	e := newEnv(t)
 	tok := e.login(t, "a@gmail.com")
 	status, body, raw := e.do(t, "POST", "/api/v1/journeys/create", tok,
-		`{"owner_id":"someoneelse","title":"T","destination":"Tokyo","departure_date":"2026-06-01T00:00:00Z","return_date":"2026-06-07T00:00:00Z"}`)
+		`{"owner_id":"someoneelse","visibility":"public","title":"T","destination":"Tokyo","departure_date":"2026-06-01T00:00:00Z","return_date":"2026-06-07T00:00:00Z"}`)
 	require.Equal(t, 201, status, raw)
 	assert.Equal(t, e.userID(t, tok), e.ownerOf(t, body["data"].(map[string]any)["slug"].(string)))
 }
@@ -129,7 +136,7 @@ func TestHTTP_DeleteAllRemoved(t *testing.T) {
 	assert.Equal(t, 200, status)
 }
 
-const tripWithDays = `{"title":"%s","destination":"Tokyo","departure_date":"2026-06-01T00:00:00Z","return_date":"2026-06-07T00:00:00Z","cover_url":"https://x.test/c.jpg","editors_can_invite":true,` +
+const tripWithDays = `{"visibility":"public","title":"%s","destination":"Tokyo","departure_date":"2026-06-01T00:00:00Z","return_date":"2026-06-07T00:00:00Z","cover_url":"https://x.test/c.jpg","editors_can_invite":true,` +
 	`"itinerary_days":[{"date":"1 Jun","date_iso":"2026-06-01T00:00:00Z","title":"D1","plans":[` +
 	`{"time":"09:00","description":"p0"},{"time":"08:00","description":"p1"},{"time":"07:00","description":"p2"}]}]}`
 
@@ -151,10 +158,10 @@ func (e *env) getTrip(t *testing.T, slug string) map[string]any {
 func TestHTTP_GetJourneyExposesIDs(t *testing.T) {
 	e := newEnv(t)
 	a := e.login(t, "a@gmail.com")
-	_, trip := e.createTrip(t, a, "A")
-	assert.Equal(t, true, trip["editors_can_invite"])
+	slug, trip := e.createTrip(t, a, "A")
+	assert.True(t, e.dbJourney(t, slug).EditorsCanInvite, "editors_can_invite is PATCH-only state, not in the public view")
 	assert.Equal(t, "https://x.test/c.jpg", trip["cover_url"])
-	days := trip["itinerary_days"].([]any)
+	days := trip["days"].([]any)
 	require.Len(t, days, 1)
 	for _, d := range days {
 		day := d.(map[string]any)
@@ -171,7 +178,7 @@ func TestHTTP_CreateSetsPositions(t *testing.T) {
 	e := newEnv(t)
 	a := e.login(t, "a@gmail.com")
 	_, trip := e.createTrip(t, a, "A")
-	plans := trip["itinerary_days"].([]any)[0].(map[string]any)["plans"].([]any)
+	plans := trip["days"].([]any)[0].(map[string]any)["plans"].([]any)
 	require.Len(t, plans, 3)
 	for i, p := range plans {
 		plan := p.(map[string]any)
@@ -187,17 +194,17 @@ func TestHTTP_UpdateIgnoresClientChildIDs(t *testing.T) {
 	slugA, _ := e.createTrip(t, a, "A")
 	slugB, tripB := e.createTrip(t, b, "B")
 
-	dayB := tripB["itinerary_days"].([]any)[0].(map[string]any)
+	dayB := tripB["days"].([]any)[0].(map[string]any)
 	planB := dayB["plans"].([]any)[0].(map[string]any)
 	body := fmt.Sprintf(`{"title":"A2","destination":"Tokyo","departure_date":"2026-06-01T00:00:00Z","return_date":"2026-06-07T00:00:00Z",`+
 		`"itinerary_days":[{"id":%q,"journey_id":%q,"date":"HACK","date_iso":"2026-06-01T00:00:00Z","title":"HACK","plans":[`+
 		`{"id":%q,"day_id":%q,"time":"01:00","description":"HACK"}]}]}`,
-		dayB["id"], tripB["id"], planB["id"], dayB["id"])
+		dayB["id"], e.dbJourney(t, slugB).ID, planB["id"], dayB["id"])
 	status, _, raw := e.do(t, "PUT", "/api/v1/journeys/"+slugA+"/update", a, body)
 	require.Equal(t, 200, status, raw)
 
 	assert.Equal(t, tripB, e.getTrip(t, slugB))
-	newDay := e.getTrip(t, slugA)["itinerary_days"].([]any)[0].(map[string]any)
+	newDay := e.getTrip(t, slugA)["days"].([]any)[0].(map[string]any)
 	assert.NotEqual(t, dayB["id"], newDay["id"])
 	assert.NotEqual(t, planB["id"], newDay["plans"].([]any)[0].(map[string]any)["id"])
 }
@@ -210,7 +217,7 @@ func TestHTTP_UpdateSetsPositions(t *testing.T) {
 	status, _, raw := e.do(t, "PUT", "/api/v1/journeys/"+slug+"/update", a, body)
 	require.Equal(t, 200, status, raw)
 
-	plans := e.getTrip(t, slug)["itinerary_days"].([]any)[0].(map[string]any)["plans"].([]any)
+	plans := e.getTrip(t, slug)["days"].([]any)[0].(map[string]any)["plans"].([]any)
 	require.Len(t, plans, 3)
 	for i, p := range plans {
 		plan := p.(map[string]any)
@@ -225,18 +232,18 @@ func TestHTTP_CreateIgnoresClientChildIDs(t *testing.T) {
 	b := e.login(t, "bob@gmail.com")
 	slugB, tripB := e.createTrip(t, b, "B")
 
-	dayB := tripB["itinerary_days"].([]any)[0].(map[string]any)
+	dayB := tripB["days"].([]any)[0].(map[string]any)
 	planB := dayB["plans"].([]any)[0].(map[string]any)
-	body := fmt.Sprintf(`{"title":"A","destination":"Tokyo","departure_date":"2026-06-01T00:00:00Z","return_date":"2026-06-07T00:00:00Z",`+
+	body := fmt.Sprintf(`{"visibility":"public","title":"A","destination":"Tokyo","departure_date":"2026-06-01T00:00:00Z","return_date":"2026-06-07T00:00:00Z",`+
 		`"itinerary_days":[{"id":%q,"journey_id":%q,"date":"HACK","date_iso":"2026-06-01T00:00:00Z","title":"HACK","plans":[`+
 		`{"id":%q,"day_id":%q,"time":"01:00","description":"HACK"}]}]}`,
-		dayB["id"], tripB["id"], planB["id"], dayB["id"])
+		dayB["id"], e.dbJourney(t, slugB).ID, planB["id"], dayB["id"])
 	status, resp, raw := e.do(t, "POST", "/api/v1/journeys/create", a, body)
 	require.Equal(t, 201, status, raw)
 	slugA := resp["data"].(map[string]any)["slug"].(string)
 
 	assert.Equal(t, tripB, e.getTrip(t, slugB))
-	newDay := e.getTrip(t, slugA)["itinerary_days"].([]any)[0].(map[string]any)
+	newDay := e.getTrip(t, slugA)["days"].([]any)[0].(map[string]any)
 	assert.NotEqual(t, dayB["id"], newDay["id"])
 	assert.NotEqual(t, planB["id"], newDay["plans"].([]any)[0].(map[string]any)["id"])
 }

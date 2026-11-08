@@ -84,7 +84,7 @@ func (s *JourneyService) Update(ctx context.Context, userID, slug string, update
 		return err
 	}
 	if !a.IsOwner() {
-		return ErrForbidden
+		return s.access.Deny(ctx, a, userID)
 	}
 	if err := validateJourney(updated); err != nil {
 		return err
@@ -107,7 +107,7 @@ func (s *JourneyService) Delete(ctx context.Context, userID, slug string) error 
 		return err
 	}
 	if !a.IsOwner() {
-		return ErrForbidden
+		return s.access.Deny(ctx, a, userID)
 	}
 	return s.repo.Delete(ctx, slug)
 }
