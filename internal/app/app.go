@@ -32,8 +32,15 @@ func New(d Deps) *fiber.App {
 	memberRepo := repository.NewMemberRepository(d.DB)
 	accessSvc := services.NewAccessService(journeyRepo, memberRepo)
 	journeySvc := services.NewJourneyService(journeyRepo, accessSvc)
-	// Wired to handlers in Task 6.
-	_ = services.NewItineraryService(accessSvc, repository.NewItineraryRepository(d.DB), journeyRepo)
+	itinerarySvc := services.NewItineraryService(accessSvc, repository.NewItineraryRepository(d.DB), journeyRepo)
+	memberSvc := services.NewMemberService(services.MemberDeps{
+		Access:   accessSvc,
+		Journeys: journeyRepo,
+		Members:  memberRepo,
+		Users:    userRepo,
+		WebURL:   strings.TrimRight(d.WebURL, "/"),
+		Now:      d.Now,
+	})
 	userSvc := services.NewUserService(userRepo)
 	authSvc := services.NewAuthService(services.AuthDeps{
 		Users:   userRepo,
@@ -51,9 +58,11 @@ func New(d Deps) *fiber.App {
 	})
 	middleware.Register(app)
 	routes.Register(app,
-		handlers.NewJourneyHandler(journeySvc),
+		handlers.NewJourneyHandler(journeySvc, memberSvc),
 		handlers.NewAuthHandler(authSvc),
 		handlers.NewUserHandler(userSvc),
+		handlers.NewMemberHandler(memberSvc),
+		handlers.NewItineraryHandler(itinerarySvc),
 		middleware.RequireAuth(authSvc),
 	)
 	return app

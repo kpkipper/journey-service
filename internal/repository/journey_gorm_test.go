@@ -80,3 +80,28 @@ func TestJourneyRepository_PlanOrderByPosition(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "09:00", got.ItineraryDays[0].Plans[0].Time)
 }
+
+func TestJourneyRepository_ListByOwnerAndIDs(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	repo := repository.NewJourneyRepository(db)
+	ctx := context.Background()
+	dep := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	mk := func(owner string) *models.Journey {
+		j := &models.Journey{Title: "T", Destination: "Tokyo", OwnerID: owner, DepartureDate: dep, ReturnDate: dep}
+		require.NoError(t, repo.Create(ctx, j))
+		return j
+	}
+	a1, _, b1 := mk("userA"), mk("userA"), mk("userB")
+
+	owned, err := repo.ListByOwner(ctx, "userA")
+	require.NoError(t, err)
+	require.Len(t, owned, 2)
+
+	byIDs, err := repo.ListByIDs(ctx, []string{a1.ID, b1.ID})
+	require.NoError(t, err)
+	require.Len(t, byIDs, 2)
+
+	none, err := repo.ListByIDs(ctx, nil)
+	require.NoError(t, err)
+	require.Empty(t, none)
+}

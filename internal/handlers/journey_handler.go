@@ -11,11 +11,18 @@ import (
 )
 
 type JourneyHandler struct {
-	svc *services.JourneyService
+	svc     *services.JourneyService
+	members *services.MemberService
 }
 
-func NewJourneyHandler(svc *services.JourneyService) *JourneyHandler {
-	return &JourneyHandler{svc: svc}
+func NewJourneyHandler(svc *services.JourneyService, members *services.MemberService) *JourneyHandler {
+	return &JourneyHandler{svc: svc, members: members}
+}
+
+// journeyDetail is the public journey with its owner and joined members.
+type journeyDetail struct {
+	*models.Journey
+	Members []models.MemberView `json:"members"`
 }
 
 func (h *JourneyHandler) Create(c *fiber.Ctx) error {
@@ -79,7 +86,14 @@ func (h *JourneyHandler) GetBySlug(c *fiber.Ctx) error {
 	if err != nil {
 		return respondError(c, err)
 	}
-	return utils.Success(c, fiber.StatusOK, journey)
+	members, err := h.members.PublicMembers(c.Context(), slug)
+	if err != nil {
+		return respondError(c, err)
+	}
+	if members == nil {
+		members = []models.MemberView{}
+	}
+	return utils.Success(c, fiber.StatusOK, journeyDetail{Journey: journey, Members: members})
 }
 
 func (h *JourneyHandler) Update(c *fiber.Ctx) error {

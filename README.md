@@ -6,6 +6,8 @@
 - [How It Works](#how-it-works)
 - [Auth](#auth)
 - [API Reference](#api-reference)
+- [Members](#members)
+- [Itinerary editing](#itinerary-editing)
 - [Response Format](#response-format)
 - [Project Structure](#project-structure)
 - [Configuration](#configuration)
@@ -166,7 +168,7 @@ Returns journeys grouped by country. Journeys without a country are grouped unde
 GET /journeys/:slug
 ```
 
-Returns a single journey with all days and plans.
+Returns a single journey with all days and plans, plus `members`: the owner and every joined member (`username`, `display_name`, `avatar_url`, `role`, `status`). Pending invites are not listed. Public, no login needed.
 
 **Response:** `200 OK`
 
@@ -178,9 +180,9 @@ Returns a single journey with all days and plans.
 PUT /journeys/:slug/update
 ```
 
-Requires login; owner only.
+Requires login; owner or editor (an editor cannot change `editors_can_invite`; it keeps its stored value).
 
-Replaces the journey including all days and plans. Make sure to include every day and plan you want to keep — anything not sent will be deleted.
+Replaces the journey including all days and plans. Make sure to include every day and plan you want to keep — anything not sent will be deleted. Days and plans are re-created with fresh IDs on every call, so IDs from an earlier `GET` are stale afterwards. Prefer the fine-grained endpoints under [Itinerary editing](#itinerary-editing) for small changes.
 
 **Request body:** same as Create
 
@@ -205,6 +207,60 @@ Requires login; owner only. Returns `404` if the journey does not exist.
   "data": {}
 }
 ```
+
+---
+
+## Members
+
+A trip has one **owner** (`journeys.owner_id`) and up to 19 other people (owner + joined + invited is capped at **20**). Members have a role of `editor` or `traveler` and a status of `invited` (not yet accepted) or `joined`. Declining, leaving and removal delete the membership row. Invited people have no access until they accept.
+
+| Role | Can do |
+| ---- | ------ |
+| owner | everything: edit, invite editors and travelers, change roles, remove members, manage and revoke invite links, change `editors_can_invite`, delete the trip |
+| editor | edit the itinerary and journey fields; invite travelers (only if `editors_can_invite` is on); leave |
+| traveler | read the members list; leave |
+| invited / outsider | nothing beyond the public read (`403` on member endpoints) |
+
+Only the owner can invite someone as `editor`. Journeys without an owner (created before login existed) are read-only: no invites, no edits.
+
+All endpoints are under `/api/v1` and require `Authorization: Bearer <token>`.
+
+| Method + path | Body | Success |
+| ------------- | ---- | ------- |
+| `GET /journeys/:slug/members` | – | `200` list of members (members only, includes invited) |
+| `POST /journeys/:slug/members` | `{"username","role"}` | `201` member (status `invited`) |
+| `PATCH /journeys/:slug/members/:username` | `{"role"}` | `200 {}` (owner only) |
+| `DELETE /journeys/:slug/members/:username` | – | `200 {}` (owner only; also cancels an invite) |
+| `POST /journeys/:slug/leave` | – | `200 {}` (the owner cannot leave) |
+| `GET /journeys/:slug/invite-links` | – | `200` list of active links (owner, or editor when allowed) |
+| `POST /journeys/:slug/invite-links` | `{"role"}` | `201 {"url","link"}`; the link expires after 7 days and the URL is `{APP_WEB_URL}/join/{token}` |
+| `DELETE /journeys/:slug/invite-links/:id` | – | `200 {}` (owner only) |
+| `POST /invites/join` | `{"token"}` | `200 {"slug"}`; the token goes in the body so it stays out of access logs |
+| `GET /me/invites` | – | `200` pending invitations for the current user |
+| `POST /me/invites/:id/accept` | – | `200 {}` |
+| `POST /me/invites/:id/decline` | – | `200 {}` |
+| `GET /me/journeys` | – | `200` trips the user owns or has joined: `slug, title, destination, departure_date, return_date, cover_url, role`, newest `departure_date` first |
+
+Errors: `403` not allowed, `404` unknown trip / member / invite, `409` already a member or trip full, `400` invalid role or username.
+
+---
+
+## Itinerary editing
+
+Owner and editors can change a trip piece by piece; travelers and non-members get `403`. All endpoints require login. Absent JSON fields are left unchanged.
+
+| Method + path | Body | Success |
+| ------------- | ---- | ------- |
+| `PATCH /journeys/:slug` | any of `title, destination, country, cover_url, departure_date, return_date, editors_can_invite` | `200` journey |
+| `POST /journeys/:slug/days` | `{"date","date_iso","title"}` (`date`, `date_iso` required) | `201` day |
+| `PATCH /journeys/:slug/days/:dayId` | any of `date, date_iso, title` | `200` day |
+| `DELETE /journeys/:slug/days/:dayId` | – | `200 {}` (deletes its plans) |
+| `POST /journeys/:slug/days/:dayId/plans` | `{"description","time","emoji","map_url"}` (`description` required) | `201` plan, appended last |
+| `PUT /journeys/:slug/days/:dayId/plans/order` | `{"plan_ids":[...]}` (exactly the day's plans) | `200 {}` |
+| `PATCH /journeys/:slug/plans/:planId` | any of `time, description, emoji, map_url, day_id` (`day_id` moves it to another day of the same trip, last position) | `200` plan |
+| `DELETE /journeys/:slug/plans/:planId` | – | `200 {}` |
+
+Rules: only the owner may change `editors_can_invite`; `cover_url` must be `https://` with a host and at most 2048 bytes; `map_url` must be a valid map URL; `return_date` may not be before `departure_date`. A day or plan that belongs to another trip is `404` even if its ID exists. `PUT /journeys/:slug/update` also works for editors, but it replaces all days and plans with fresh IDs.
 
 ---
 

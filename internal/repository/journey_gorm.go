@@ -89,3 +89,18 @@ func (r *journeyGorm) Delete(ctx context.Context, slug string) error {
 	}
 	return nil
 }
+
+func (r *journeyGorm) ListByOwner(ctx context.Context, ownerID string) ([]models.Journey, error) {
+	var journeys []models.Journey
+	err := r.db.WithContext(ctx).Where("owner_id = ?", ownerID).Find(&journeys).Error
+	return journeys, err
+}
+
+func (r *journeyGorm) ListByIDs(ctx context.Context, ids []string) ([]models.Journey, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var journeys []models.Journey
+	err := r.db.WithContext(ctx).Where("id IN ?", ids).Find(&journeys).Error
+	return journeys, err
+}

@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 
@@ -48,6 +49,17 @@ type InviteView struct {
 	JourneyTitle string `json:"journey_title"`
 	Role         string `json:"role"`
 	InvitedBy    string `json:"invited_by"`
+}
+
+// MyJourney is a trip the user owns or has joined, with the user's role in it.
+type MyJourney struct {
+	Slug          string    `json:"slug"`
+	Title         string    `json:"title"`
+	Destination   string    `json:"destination"`
+	DepartureDate time.Time `json:"departure_date"`
+	ReturnDate    time.Time `json:"return_date"`
+	CoverURL      string    `json:"cover_url"`
+	Role          string    `json:"role"`
 }
 
 func normalizeUsername(u string) string { return strings.ToLower(strings.TrimSpace(u)) }
@@ -207,6 +219,50 @@ func (s *MemberService) MyInvites(ctx context.Context, userID string) ([]InviteV
 		}
 		out = append(out, v)
 	}
+	return out, nil
+}
+
+// MyJourneys lists trips the user owns or has joined (not pending invites), newest departure first.
+func (s *MemberService) MyJourneys(ctx context.Context, userID string) ([]MyJourney, error) {
+	owned, err := s.Journeys.ListByOwner(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]MyJourney, 0, len(owned))
+	seen := map[string]bool{}
+	add := func(j models.Journey, role string) {
+		seen[j.ID] = true
+		out = append(out, MyJourney{
+			Slug: j.Slug, Title: j.Title, Destination: j.Destination,
+			DepartureDate: j.DepartureDate, ReturnDate: j.ReturnDate,
+			CoverURL: j.CoverURL, Role: role,
+		})
+	}
+	for _, j := range owned {
+		add(j, models.RoleOwner)
+	}
+	ids, err := s.Members.ListJourneyIDsForUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	joined, err := s.Journeys.ListByIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for _, j := range joined {
+		if seen[j.ID] {
+			continue
+		}
+		m, err := s.Members.Get(ctx, j.ID, userID)
+		if err != nil {
+			return nil, err
+		}
+		if m == nil || m.Status != models.StatusJoined {
+			continue
+		}
+		add(j, m.Role)
+	}
+	sort.SliceStable(out, func(a, b int) bool { return out[a].DepartureDate.After(out[b].DepartureDate) })
 	return out, nil
 }
 
