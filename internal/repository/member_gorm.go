@@ -41,8 +41,21 @@ func (r *memberGorm) GetByID(ctx context.Context, id string) (*models.JourneyMem
 	return r.getMember(ctx, "id = ?", id)
 }
 
-func (r *memberGorm) Update(ctx context.Context, m *models.JourneyMember) error {
-	return r.db.WithContext(ctx).Save(m).Error
+// SetStatus is a compare-and-set: it only changes a row that still has status
+// fromStatus, so a row deleted or changed concurrently is never resurrected.
+func (r *memberGorm) SetStatus(ctx context.Context, id, fromStatus, toStatus string) (bool, error) {
+	res := r.db.WithContext(ctx).Model(&models.JourneyMember{}).
+		Where("id = ? AND status = ?", id, fromStatus).
+		Updates(map[string]any{"status": toStatus})
+	return res.RowsAffected > 0, res.Error
+}
+
+// SetRole changes the role of an existing row; false means the row is gone.
+func (r *memberGorm) SetRole(ctx context.Context, id, role string) (bool, error) {
+	res := r.db.WithContext(ctx).Model(&models.JourneyMember{}).
+		Where("id = ?", id).
+		Updates(map[string]any{"role": role})
+	return res.RowsAffected > 0, res.Error
 }
 
 func (r *memberGorm) Delete(ctx context.Context, id string) error {

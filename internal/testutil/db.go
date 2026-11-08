@@ -16,7 +16,7 @@ func NewTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	name := strings.ReplaceAll(t.Name(), "/", "_")
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared&_pragma=foreign_keys(1)", name)
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent), TranslateError: true})
 	if err != nil {
 		t.Fatalf("open test db: %v", err)
 	}

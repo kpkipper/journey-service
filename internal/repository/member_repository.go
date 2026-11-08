@@ -12,7 +12,10 @@ type MemberRepository interface {
 	// Get returns nil, nil when the user has no row in the journey.
 	Get(ctx context.Context, journeyID, userID string) (*models.JourneyMember, error)
 	GetByID(ctx context.Context, id string) (*models.JourneyMember, error)
-	Update(ctx context.Context, m *models.JourneyMember) error
+	// SetStatus changes status only if the row still has fromStatus; false when no row matched.
+	SetStatus(ctx context.Context, id, fromStatus, toStatus string) (bool, error)
+	// SetRole changes the role of an existing row; false when the row no longer exists.
+	SetRole(ctx context.Context, id, role string) (bool, error)
 	Delete(ctx context.Context, id string) error
 	// ListByJourney joins users; joined members first, then by created_at.
 	ListByJourney(ctx context.Context, journeyID string) ([]models.MemberView, error)

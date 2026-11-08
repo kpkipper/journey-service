@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"gorm.io/gorm"
 	"testing"
 	"time"
 
@@ -91,8 +92,12 @@ func TestMemberRepository_GetUpdateAndUserLists(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, ids)
 
-	m.Status = models.StatusJoined
-	require.NoError(t, repo.Update(ctx, m))
+	ok, err := repo.SetStatus(ctx, m.ID, models.StatusJoined, models.StatusJoined)
+	require.NoError(t, err)
+	assert.False(t, ok, "status precondition must match")
+	ok, err = repo.SetStatus(ctx, m.ID, models.StatusInvited, models.StatusJoined)
+	require.NoError(t, err)
+	assert.True(t, ok)
 	invites, err = repo.ListInvitesForUser(ctx, "u1")
 	require.NoError(t, err)
 	assert.Empty(t, invites)
@@ -133,4 +138,30 @@ func TestMemberRepository_InviteLinks(t *testing.T) {
 	g, err = repo.GetInviteLink(ctx, "other-trip", l2.ID)
 	assert.NoError(t, err)
 	assert.Nil(t, g)
+}
+
+func TestMemberRepository_CompareAndSetNeverResurrects(t *testing.T) {
+	repo := NewMemberRepository(testutil.NewTestDB(t))
+	ctx := context.Background()
+	m := &models.JourneyMember{JourneyID: "j1", UserID: "u1", Role: models.RoleTraveler, Status: models.StatusInvited}
+	require.NoError(t, repo.Create(ctx, m))
+	require.NoError(t, repo.Delete(ctx, m.ID))
+
+	ok, err := repo.SetStatus(ctx, m.ID, models.StatusInvited, models.StatusJoined)
+	require.NoError(t, err)
+	assert.False(t, ok)
+	ok, err = repo.SetRole(ctx, m.ID, models.RoleEditor)
+	require.NoError(t, err)
+	assert.False(t, ok)
+	got, err := repo.GetByID(ctx, m.ID)
+	require.NoError(t, err)
+	assert.Nil(t, got, "no row may be recreated")
+}
+
+func TestMemberRepository_DuplicateCreateIsDuplicatedKey(t *testing.T) {
+	repo := NewMemberRepository(testutil.NewTestDB(t))
+	ctx := context.Background()
+	require.NoError(t, repo.Create(ctx, &models.JourneyMember{JourneyID: "j1", UserID: "u1", Role: models.RoleTraveler, Status: models.StatusInvited}))
+	err := repo.Create(ctx, &models.JourneyMember{JourneyID: "j1", UserID: "u1", Role: models.RoleTraveler, Status: models.StatusInvited})
+	assert.ErrorIs(t, err, gorm.ErrDuplicatedKey)
 }
