@@ -32,7 +32,11 @@ func (s *AccessService) Load(ctx context.Context, slug, userID string) (*Access,
 	if journey == nil {
 		return nil, ErrNotFound
 	}
+	return s.ForJourney(ctx, journey, userID)
+}
 
+// ForJourney resolves the user's role in an already-loaded trip. userID may be empty.
+func (s *AccessService) ForJourney(ctx context.Context, journey *models.Journey, userID string) (*Access, error) {
 	a := &Access{Journey: journey}
 	switch {
 	case journey.OwnerID != "" && journey.OwnerID == userID:
