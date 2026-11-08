@@ -22,6 +22,9 @@ func NewJourneyService(repo repository.JourneyRepository, access *AccessService)
 }
 
 func (s *JourneyService) Create(ctx context.Context, ownerID string, journey *models.Journey) error {
+	if err := validateJourney(journey); err != nil {
+		return err
+	}
 	journey.OwnerID = ownerID
 	journey.ID = ""
 	journey.DeletedAt = gorm.DeletedAt{}
@@ -83,6 +86,9 @@ func (s *JourneyService) Update(ctx context.Context, userID, slug string, update
 		return ErrForbidden
 	}
 	existing := a.Journey
+	if err := validateJourney(updated); err != nil {
+		return err
+	}
 
 	updated.ID = existing.ID
 	updated.Slug = existing.Slug

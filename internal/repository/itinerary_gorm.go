@@ -33,7 +33,8 @@ func (r *itineraryGorm) CreateDay(ctx context.Context, d *models.ItineraryDay) e
 }
 
 func (r *itineraryGorm) UpdateDay(ctx context.Context, d *models.ItineraryDay) error {
-	return r.db.WithContext(ctx).Omit("Plans").Save(d).Error
+	return updateOne(r.db.WithContext(ctx).Model(&models.ItineraryDay{}).Where("id = ?", d.ID),
+		map[string]any{"date": d.Date, "date_iso": d.DateISO, "title": d.Title})
 }
 
 // DeleteDay removes the day and its plans explicitly (SQLite may not enforce FK cascades).
@@ -66,7 +67,10 @@ func (r *itineraryGorm) CreatePlan(ctx context.Context, p *models.ActivityPlan) 
 }
 
 func (r *itineraryGorm) UpdatePlan(ctx context.Context, p *models.ActivityPlan) error {
-	return r.db.WithContext(ctx).Save(p).Error
+	return updateOne(r.db.WithContext(ctx).Model(&models.ActivityPlan{}).Where("id = ?", p.ID), map[string]any{
+		"itinerary_day_id": p.ItineraryDayID, "time": p.Time, "description": p.Description,
+		"emoji": p.Emoji, "map_url": p.MapURL, "position": p.Position,
+	})
 }
 
 func (r *itineraryGorm) DeletePlan(ctx context.Context, planID string) error {
@@ -106,4 +110,17 @@ func (r *itineraryGorm) SetPositions(ctx context.Context, dayID string, ids []st
 
 func (r *itineraryGorm) UpdateJourneyFields(ctx context.Context, journeyID string, fields map[string]any) error {
 	return r.db.WithContext(ctx).Model(&models.Journey{}).Where("id = ?", journeyID).Updates(fields).Error
+}
+
+// updateOne updates only the given columns and reports gorm.ErrRecordNotFound
+// when the row no longer exists (so a deleted row is never resurrected).
+func updateOne(q *gorm.DB, fields map[string]any) error {
+	res := q.Updates(fields)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/kpkipper/journey-service/internal/models"
 	"github.com/kpkipper/journey-service/internal/repository"
+	"gorm.io/gorm"
 )
 
 var ErrDayNotFound = errors.New("day not found")
@@ -102,7 +103,7 @@ func (s *ItineraryService) PatchJourney(ctx context.Context, userID, slug string
 		ret = *p.ReturnDate
 		fields["return_date"] = ret
 	}
-	if ret.Before(dep) {
+	if (p.DepartureDate != nil || p.ReturnDate != nil) && ret.Before(dep) {
 		return nil, &ValidationError{Message: "return_date must not be before departure_date"}
 	}
 	if p.EditorsCanInvite != nil {
@@ -173,6 +174,9 @@ func (s *ItineraryService) UpdateDay(ctx context.Context, userID, slug, dayID st
 		d.Title = *in.Title
 	}
 	if err := s.repo.UpdateDay(ctx, d); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrDayNotFound
+		}
 		return nil, err
 	}
 	return d, nil
@@ -207,6 +211,9 @@ func (s *ItineraryService) AddPlan(ctx context.Context, userID, slug, dayID stri
 	}
 	if in.Description == nil || blank(*in.Description) {
 		return nil, &ValidationError{Message: "description is required"}
+	}
+	if in.MapURL != nil && *in.MapURL != "" && !validMapURL(*in.MapURL) {
+		return nil, errBadMapURL
 	}
 	max, err := s.repo.MaxPosition(ctx, d.ID)
 	if err != nil {
@@ -250,6 +257,9 @@ func (s *ItineraryService) UpdatePlan(ctx context.Context, userID, slug, planID 
 	if in.Description != nil && blank(*in.Description) {
 		return nil, &ValidationError{Message: "description must not be empty"}
 	}
+	if in.MapURL != nil && *in.MapURL != "" && !validMapURL(*in.MapURL) {
+		return nil, errBadMapURL
+	}
 	if in.DayID != nil && *in.DayID != p.ItineraryDayID {
 		target, err := s.repo.GetDay(ctx, a.Journey.ID, *in.DayID)
 		if err != nil {
@@ -267,6 +277,9 @@ func (s *ItineraryService) UpdatePlan(ctx context.Context, userID, slug, planID 
 	}
 	applyPlanInput(p, in)
 	if err := s.repo.UpdatePlan(ctx, p); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrPlanNotFound
+		}
 		return nil, err
 	}
 	return p, nil

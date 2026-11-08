@@ -299,3 +299,65 @@ func TestCreateIgnoresClientIDAndDeletedAt(t *testing.T) {
 	require.NotNil(t, got)
 	assert.False(t, got.DeletedAt.Valid)
 }
+
+func TestWritePathsValidateURLsAndDates(t *testing.T) {
+	e := newItinEnv(t)
+	j := e.trip()
+	var ve *ValidationError
+	full := func(mut func(*models.Journey)) *models.Journey {
+		in := &models.Journey{Title: "T", Destination: "Nagoya", DepartureDate: j.DepartureDate, ReturnDate: j.ReturnDate}
+		mut(in)
+		return in
+	}
+
+	assert.ErrorAs(t, e.journeys.Update(e.ctx, "edtr", j.Slug, full(func(in *models.Journey) { in.CoverURL = "http://x/c.jpg" })), &ve)
+	assert.ErrorAs(t, e.journeys.Update(e.ctx, "edtr", j.Slug, full(func(in *models.Journey) {
+		in.DepartureDate, in.ReturnDate = j.ReturnDate, j.DepartureDate
+	})), &ve)
+	assert.ErrorAs(t, e.journeys.Create(e.ctx, "alice", full(func(in *models.Journey) { in.CoverURL = "javascript:alert(1)" })), &ve)
+	bad := func(in *models.Journey) {
+		in.ItineraryDays = []models.ItineraryDay{{Date: "d", DateISO: j.DepartureDate, Plans: []models.ActivityPlan{{Description: "x", MapURL: "javascript:alert(1)"}}}}
+	}
+	assert.ErrorAs(t, e.journeys.Create(e.ctx, "alice", full(bad)), &ve)
+	assert.ErrorAs(t, e.journeys.Update(e.ctx, "alice", j.Slug, full(bad)), &ve)
+	assert.Equal(t, "Trip", e.reload(j).Title)
+	require.NoError(t, e.journeys.Update(e.ctx, "edtr", j.Slug, full(func(in *models.Journey) { in.CoverURL = "https://x.test/ok.jpg" })))
+}
+
+func TestPlanMapURL(t *testing.T) {
+	e := newItinEnv(t)
+	j := e.trip()
+	d := e.day(j, "D1")
+	var ve *ValidationError
+
+	_, err := e.svc.AddPlan(e.ctx, "edtr", j.Slug, d.ID, PlanInput{Description: sp("x"), MapURL: sp("javascript:alert(1)")})
+	assert.ErrorAs(t, err, &ve)
+	p, err := e.svc.AddPlan(e.ctx, "edtr", j.Slug, d.ID, PlanInput{Description: sp("x"), MapURL: sp("https://maps.google.com/?q=x")})
+	require.NoError(t, err)
+	_, err = e.svc.UpdatePlan(e.ctx, "edtr", j.Slug, p.ID, PlanInput{MapURL: sp("javascript:alert(1)")})
+	assert.ErrorAs(t, err, &ve)
+	_, err = e.svc.UpdatePlan(e.ctx, "edtr", j.Slug, p.ID, PlanInput{MapURL: sp("http://maps.test/x")})
+	require.NoError(t, err)
+}
+
+func TestPatchDatesOnlyCheckedWhenPatched(t *testing.T) {
+	e := newItinEnv(t)
+	j := e.trip()
+	// Pre-existing bad data: return before departure already stored.
+	require.NoError(t, e.db.Model(&models.Journey{}).Where("id = ?", j.ID).Update("return_date", j.DepartureDate.Add(-48*time.Hour)).Error)
+	_, err := e.svc.PatchJourney(e.ctx, "alice", j.Slug, JourneyPatch{Title: sp("fine")})
+	assert.NoError(t, err)
+}
+
+func TestUpdateDoesNotResurrectDeletedRows(t *testing.T) {
+	e := newItinEnv(t)
+	j := e.trip()
+	d := e.day(j, "D1")
+	p := e.plan(j, d.ID, "x")
+	itin := repository.NewItineraryRepository(e.db)
+	require.NoError(t, itin.DeletePlan(e.ctx, p.ID))
+	assert.ErrorIs(t, itin.UpdatePlan(e.ctx, p), gorm.ErrRecordNotFound)
+	require.NoError(t, itin.DeleteDay(e.ctx, d))
+	assert.ErrorIs(t, itin.UpdateDay(e.ctx, d), gorm.ErrRecordNotFound)
+	assert.Empty(t, e.reload(j).ItineraryDays)
+}
