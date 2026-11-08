@@ -8,9 +8,14 @@ import (
 )
 
 type Config struct {
-	App   AppConfig
-	DBDSN Postgres
-	SMTP  SMTP
+	App    AppConfig
+	DBDSN  Postgres
+	SMTP   SMTP
+	Google Google
+}
+
+type Google struct {
+	ClientID string `envconfig:"GOOGLE_CLIENT_ID"`
 }
 
 type SMTP struct {
@@ -27,6 +32,7 @@ type AppConfig struct {
 	ENV    string `envconfig:"APP_ENV"`
 	Prefix string `envconfig:"APP_PREFIX"`
 	APIKey string `envconfig:"APP_API_KEY"`
+	WebURL string `envconfig:"APP_WEB_URL"`
 }
 
 type Postgres struct {

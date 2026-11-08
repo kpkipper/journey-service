@@ -5,14 +5,26 @@ import (
 	"github.com/kpkipper/journey-service/internal/handlers"
 )
 
-func Register(app *fiber.App, h *handlers.JourneyHandler) {
+// Register wires all routes. requireAuth is applied per route (not via group.Use)
+// so unmatched routes still return 404/405.
+func Register(app *fiber.App, j *handlers.JourneyHandler, a *handlers.AuthHandler, u *handlers.UserHandler, requireAuth fiber.Handler) {
 	v1 := app.Group("/api/v1")
 
+	authG := v1.Group("/auth")
+	authG.Post("/google", a.Google)
+	authG.Post("/email/start", a.EmailStart)
+	authG.Post("/email/verify", a.EmailVerify)
+	authG.Post("/logout", requireAuth, a.Logout)
+
+	v1.Get("/me", requireAuth, u.Me)
+	v1.Patch("/me", requireAuth, u.UpdateMe)
+	v1.Get("/users/:username", u.PublicProfile)
+
 	journeys := v1.Group("/journeys")
-	journeys.Post("/create", h.Create)
-	journeys.Get("/", h.List)
-	journeys.Get("/:slug", h.GetBySlug)
-	journeys.Put("/:slug/update", h.Update)
-	journeys.Delete("/", h.DeleteAll)
-	journeys.Delete("/:slug", h.Delete)
+	journeys.Post("/create", j.Create)
+	journeys.Get("/", j.List)
+	journeys.Get("/:slug", j.GetBySlug)
+	journeys.Put("/:slug/update", j.Update)
+	journeys.Delete("/", j.DeleteAll)
+	journeys.Delete("/:slug", j.Delete)
 }

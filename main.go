@@ -11,11 +11,9 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/kpkipper/journey-service/config"
 	"github.com/kpkipper/journey-service/database"
-	"github.com/kpkipper/journey-service/internal/handlers"
-	"github.com/kpkipper/journey-service/internal/middleware"
-	"github.com/kpkipper/journey-service/internal/repository"
-	"github.com/kpkipper/journey-service/internal/routes"
-	"github.com/kpkipper/journey-service/internal/services"
+	appPkg "github.com/kpkipper/journey-service/internal/app"
+	"github.com/kpkipper/journey-service/internal/auth"
+	"github.com/kpkipper/journey-service/internal/mailer"
 	"github.com/kpkipper/journey-service/pkg/logger"
 )
 
@@ -36,17 +34,26 @@ func main() {
 	}
 	log.Info().Msg("database migrated")
 
-	repo := repository.NewJourneyRepository(db)
-	svc := services.NewJourneyService(repo)
-	handler := handlers.NewJourneyHandler(svc)
+	if cfg.Google.ClientID == "" {
+		log.Warn().Msg("GOOGLE_CLIENT_ID is empty; Google login will be rejected")
+	}
 
-	app := fiber.New(fiber.Config{
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
+	var mail mailer.Mailer
+	if cfg.SMTP.Host == "" {
+		if cfg.App.ENV == "production" {
+			log.Fatal().Msg("SMTP_HOST must be set when APP_ENV=production (the log mailer prints login links)")
+		}
+		mail = mailer.NewLogMailer()
+	} else {
+		mail = mailer.NewSMTPMailer(cfg.SMTP)
+	}
+
+	app := appPkg.New(appPkg.Deps{
+		DB:     db,
+		Google: auth.NewGoogleVerifier(cfg.Google.ClientID),
+		Mailer: mail,
+		WebURL: cfg.App.WebURL,
 	})
-
-	middleware.Register(app)
-	routes.Register(app, handler)
 
 	setupGracefulShutdown(app)
 
