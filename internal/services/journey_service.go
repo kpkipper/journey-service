@@ -9,6 +9,7 @@ import (
 )
 
 var ErrNotFound = errors.New("journey not found")
+var ErrForbidden = errors.New("forbidden")
 
 type JourneyService struct {
 	repo repository.JourneyRepository
@@ -18,7 +19,8 @@ func NewJourneyService(repo repository.JourneyRepository) *JourneyService {
 	return &JourneyService{repo: repo}
 }
 
-func (s *JourneyService) Create(ctx context.Context, journey *models.Journey) error {
+func (s *JourneyService) Create(ctx context.Context, ownerID string, journey *models.Journey) error {
+	journey.OwnerID = ownerID
 	return s.repo.Create(ctx, journey)
 }
 
@@ -37,26 +39,39 @@ func (s *JourneyService) GetBySlug(ctx context.Context, slug string) (*models.Jo
 	return journey, nil
 }
 
-func (s *JourneyService) Update(ctx context.Context, slug string, updated *models.Journey) error {
+// owned loads the journey and checks userID owns it. Journeys with an empty
+// OwnerID (legacy) are owned by nobody.
+func (s *JourneyService) owned(ctx context.Context, userID, slug string) (*models.Journey, error) {
 	existing, err := s.repo.GetBySlug(ctx, slug)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if existing == nil {
-		return ErrNotFound
+		return nil, ErrNotFound
+	}
+	if existing.OwnerID == "" || existing.OwnerID != userID {
+		return nil, ErrForbidden
+	}
+	return existing, nil
+}
+
+func (s *JourneyService) Update(ctx context.Context, userID, slug string, updated *models.Journey) error {
+	existing, err := s.owned(ctx, userID, slug)
+	if err != nil {
+		return err
 	}
 
 	updated.ID = existing.ID
 	updated.Slug = existing.Slug
 	updated.CreatedAt = existing.CreatedAt
+	updated.OwnerID = existing.OwnerID
 
 	return s.repo.Update(ctx, updated)
 }
 
-func (s *JourneyService) Delete(ctx context.Context, slug string) error {
+func (s *JourneyService) Delete(ctx context.Context, userID, slug string) error {
+	if _, err := s.owned(ctx, userID, slug); err != nil {
+		return err
+	}
 	return s.repo.Delete(ctx, slug)
-}
-
-func (s *JourneyService) DeleteAll(ctx context.Context) error {
-	return s.repo.DeleteAll(ctx)
 }

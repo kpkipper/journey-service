@@ -21,10 +21,9 @@ func Register(app *fiber.App, j *handlers.JourneyHandler, a *handlers.AuthHandle
 	v1.Get("/users/:username", u.PublicProfile)
 
 	journeys := v1.Group("/journeys")
-	journeys.Post("/create", j.Create)
+	journeys.Post("/create", requireAuth, j.Create)
 	journeys.Get("/", j.List)
 	journeys.Get("/:slug", j.GetBySlug)
-	journeys.Put("/:slug/update", j.Update)
-	journeys.Delete("/", j.DeleteAll)
-	journeys.Delete("/:slug", j.Delete)
+	journeys.Put("/:slug/update", requireAuth, j.Update)
+	journeys.Delete("/:slug", requireAuth, j.Delete)
 }

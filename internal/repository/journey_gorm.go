@@ -77,7 +77,3 @@ func (r *journeyGorm) Delete(ctx context.Context, slug string) error {
 	}
 	return nil
 }
-
-func (r *journeyGorm) DeleteAll(ctx context.Context) error {
-	return r.db.WithContext(ctx).Where("1 = 1").Delete(&models.Journey{}).Error
-}

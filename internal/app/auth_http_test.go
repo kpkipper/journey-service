@@ -16,6 +16,7 @@ import (
 	"github.com/kpkipper/journey-service/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 var tokenRe = regexp.MustCompile(`token=([0-9a-f]{64})`)
@@ -23,20 +24,22 @@ var tokenRe = regexp.MustCompile(`token=([0-9a-f]{64})`)
 type env struct {
 	app  *fiber.App
 	mail *testutil.CaptureMailer
+	db   *gorm.DB
 }
 
 func newEnv(t *testing.T) *env {
 	t.Helper()
 	mail := &testutil.CaptureMailer{}
 	now := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+	db := testutil.NewTestDB(t)
 	a := app.New(app.Deps{
-		DB:     testutil.NewTestDB(t),
+		DB:     db,
 		Google: &testutil.FakeGoogle{Identities: map[string]*auth.GoogleIdentity{}},
 		Mailer: mail,
 		WebURL: "http://web.test/",
 		Now:    func() time.Time { return now },
 	})
-	return &env{app: a, mail: mail}
+	return &env{app: a, mail: mail, db: db}
 }
 
 func (e *env) do(t *testing.T, method, path, token, body string) (int, map[string]any, string) {

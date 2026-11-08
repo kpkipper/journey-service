@@ -4,6 +4,7 @@
 
 - [Overview](#overview)
 - [How It Works](#how-it-works)
+- [Auth](#auth)
 - [API Reference](#api-reference)
 - [Response Format](#response-format)
 - [Project Structure](#project-structure)
@@ -40,6 +41,28 @@ Request → Handler → Service → Repository → Database
 
 ---
 
+## Auth
+
+Login is Google or an email link only (no passwords). A successful login returns a random session `token` (valid 30 days; only its hash is stored). Send it on protected requests:
+
+```
+Authorization: Bearer <token>
+```
+
+| Method | Path                    | Auth | Description                                               |
+| ------ | ----------------------- | ---- | --------------------------------------------------------- |
+| POST   | `/auth/google`          | no   | log in with a Google ID token                             |
+| POST   | `/auth/email/start`     | no   | email a login link (valid 15 min, one use, 5 per hour)    |
+| POST   | `/auth/email/verify`    | no   | exchange the emailed token for a session token            |
+| POST   | `/auth/logout`          | yes  | revoke the current session                                |
+| GET    | `/me`                   | yes  | current user                                              |
+| PATCH  | `/me`                   | yes  | update `username`, `display_name`, `bio`                  |
+| GET    | `/users/:username`      | no   | public profile (no email)                                 |
+
+Journeys have an owner (`owner_id`, set from the logged-in user on create). Creating, updating and deleting a journey requires login; only the owner may update or delete it (`403 forbidden` otherwise). Reading journeys is public. Journeys created before login existed have an empty `owner_id` and are read-only; to hand one to a user, set its `owner_id` in the database by hand.
+
+---
+
 ## API Reference
 
 Base URL: `/api/v1`
@@ -49,8 +72,10 @@ Base URL: `/api/v1`
 ### Create a Journey
 
 ```
-POST /journeys
+POST /journeys/create
 ```
+
+Requires login. The owner is the logged-in user (any `owner_id` in the body is ignored).
 
 **Request body:**
 
@@ -138,7 +163,7 @@ Returns journeys grouped by country. Journeys without a country are grouped unde
 ### Get a Journey
 
 ```
-GET /journeys/:id
+GET /journeys/:slug
 ```
 
 Returns a single journey with all days and plans.
@@ -150,8 +175,10 @@ Returns a single journey with all days and plans.
 ### Update a Journey
 
 ```
-PUT /journeys/:id
+PUT /journeys/:slug/update
 ```
+
+Requires login; owner only.
 
 Replaces the journey including all days and plans. Make sure to include every day and plan you want to keep — anything not sent will be deleted.
 
@@ -164,8 +191,10 @@ Replaces the journey including all days and plans. Make sure to include every da
 ### Delete a Journey
 
 ```
-DELETE /journeys/:id
+DELETE /journeys/:slug
 ```
+
+Requires login; owner only. Returns `404` if the journey does not exist.
 
 **Response:** `200 OK`
 
@@ -208,6 +237,8 @@ DELETE /journeys/:id
 | 200         | `JOURNEY-200000` |
 | 201         | `JOURNEY-201000` |
 | 400         | `JOURNEY-400000` |
+| 401         | `JOURNEY-401000` |
+| 403         | `JOURNEY-403000` |
 | 404         | `JOURNEY-404000` |
 | 500         | `JOURNEY-500000` |
 
@@ -258,6 +289,9 @@ cp .env.example .env
 | `APP_PORT` | `8080`               | port the server listens on                            |
 | `APP_ENV`  | `development`        | `development` = pretty logs, `production` = JSON logs |
 | `DB_DSN`   | `host=localhost ...` | PostgreSQL connection string                          |
+| `APP_WEB_URL` | | web app base URL, used in email login links |
+| `GOOGLE_CLIENT_ID` | | Google OAuth client ID used to verify Google ID tokens |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | | SMTP settings for sending login emails |
 
 ---
 

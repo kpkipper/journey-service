@@ -21,6 +21,10 @@ func respondError(c *fiber.Ctx, err error) error {
 		return utils.Error(c, fiber.StatusUnauthorized, err.Error())
 	case errors.Is(err, services.ErrUserNotFound):
 		return utils.Error(c, fiber.StatusNotFound, err.Error())
+	case errors.Is(err, services.ErrNotFound):
+		return utils.Error(c, fiber.StatusNotFound, "journey not found")
+	case errors.Is(err, services.ErrForbidden):
+		return utils.Error(c, fiber.StatusForbidden, "forbidden")
 	case errors.Is(err, services.ErrUsernameTaken):
 		return utils.Error(c, fiber.StatusConflict, err.Error())
 	case errors.Is(err, services.ErrTooManyRequests):

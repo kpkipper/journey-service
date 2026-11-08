@@ -1,10 +1,10 @@
 package handlers
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/kpkipper/journey-service/internal/middleware"
 	"github.com/kpkipper/journey-service/internal/models"
 	"github.com/kpkipper/journey-service/internal/services"
 	"github.com/kpkipper/journey-service/pkg/utils"
@@ -27,8 +27,8 @@ func (h *JourneyHandler) Create(c *fiber.Ctx) error {
 		return utils.Error(c, fiber.StatusBadRequest, "title and destination are required")
 	}
 
-	if err := h.svc.Create(c.Context(), &journey); err != nil {
-		return utils.Error(c, fiber.StatusInternalServerError, err.Error())
+	if err := h.svc.Create(c.Context(), middleware.CurrentUserID(c), &journey); err != nil {
+		return respondError(c, err)
 	}
 	return utils.Success(c, fiber.StatusCreated, fiber.Map{"slug": journey.Slug})
 }
@@ -36,7 +36,7 @@ func (h *JourneyHandler) Create(c *fiber.Ctx) error {
 func (h *JourneyHandler) List(c *fiber.Ctx) error {
 	journeys, err := h.svc.List(c.Context())
 	if err != nil {
-		return utils.Error(c, fiber.StatusInternalServerError, err.Error())
+		return respondError(c, err)
 	}
 
 	groupedMap := map[string]*models.JourneyByCountry{}
@@ -77,10 +77,7 @@ func (h *JourneyHandler) GetBySlug(c *fiber.Ctx) error {
 
 	journey, err := h.svc.GetBySlug(c.Context(), slug)
 	if err != nil {
-		if errors.Is(err, services.ErrNotFound) {
-			return utils.Error(c, fiber.StatusNotFound, "journey not found")
-		}
-		return utils.Error(c, fiber.StatusInternalServerError, err.Error())
+		return respondError(c, err)
 	}
 	return utils.Success(c, fiber.StatusOK, journey)
 }
@@ -99,11 +96,8 @@ func (h *JourneyHandler) Update(c *fiber.Ctx) error {
 		return utils.Error(c, fiber.StatusBadRequest, "title and destination are required")
 	}
 
-	if err := h.svc.Update(c.Context(), slug, &journey); err != nil {
-		if errors.Is(err, services.ErrNotFound) {
-			return utils.Error(c, fiber.StatusNotFound, "journey not found")
-		}
-		return utils.Error(c, fiber.StatusInternalServerError, err.Error())
+	if err := h.svc.Update(c.Context(), middleware.CurrentUserID(c), slug, &journey); err != nil {
+		return respondError(c, err)
 	}
 	return utils.Success(c, fiber.StatusOK, nil)
 }
@@ -114,18 +108,8 @@ func (h *JourneyHandler) Delete(c *fiber.Ctx) error {
 		return utils.Error(c, fiber.StatusBadRequest, "invalid journey slug")
 	}
 
-	if err := h.svc.Delete(c.Context(), slug); err != nil {
-		if errors.Is(err, services.ErrNotFound) {
-			return utils.Error(c, fiber.StatusNotFound, "journey not found")
-		}
-		return utils.Error(c, fiber.StatusInternalServerError, err.Error())
+	if err := h.svc.Delete(c.Context(), middleware.CurrentUserID(c), slug); err != nil {
+		return respondError(c, err)
 	}
 	return utils.Success(c, fiber.StatusOK, fiber.Map{})
-}
-
-func (h *JourneyHandler) DeleteAll(c *fiber.Ctx) error {
-	if err := h.svc.DeleteAll(c.Context()); err != nil {
-		return utils.Error(c, fiber.StatusInternalServerError, err.Error())
-	}
-	return utils.Success(c, fiber.StatusOK, nil)
 }

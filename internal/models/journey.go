@@ -20,6 +20,7 @@ func newShortID() string {
 type Journey struct {
 	ID            string         `gorm:"type:varchar(10);primaryKey" json:"id"`
 	Slug          string         `gorm:"type:varchar(100);uniqueIndex" json:"slug"`
+	OwnerID       string         `gorm:"type:varchar(10);index" json:"owner_id"`
 	Title         string         `gorm:"not null" json:"title"`
 	Destination   string         `gorm:"not null" json:"destination"`
 	Country       string         `json:"country"`
