@@ -29,7 +29,11 @@ func New(d Deps) *fiber.App {
 	userRepo := repository.NewUserRepository(d.DB)
 	authRepo := repository.NewAuthRepository(d.DB)
 
-	journeySvc := services.NewJourneyService(journeyRepo)
+	memberRepo := repository.NewMemberRepository(d.DB)
+	accessSvc := services.NewAccessService(journeyRepo, memberRepo)
+	journeySvc := services.NewJourneyService(journeyRepo, accessSvc)
+	// Wired to handlers in Task 6.
+	_ = services.NewItineraryService(accessSvc, repository.NewItineraryRepository(d.DB), journeyRepo)
 	userSvc := services.NewUserService(userRepo)
 	authSvc := services.NewAuthService(services.AuthDeps{
 		Users:   userRepo,

@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"errors"
-	"net/url"
 	"regexp"
 	"strings"
 	"unicode/utf8"
@@ -106,7 +105,7 @@ func (s *UserService) UpdateProfile(ctx context.Context, userID string, in model
 		u.Bio = *in.Bio
 	}
 	if in.AvatarURL != nil {
-		if *in.AvatarURL != "" && !validAvatarURL(*in.AvatarURL) {
+		if *in.AvatarURL != "" && !validHTTPSURL(*in.AvatarURL) {
 			return nil, &ValidationError{Message: "avatar_url must be an https URL of at most 2048 bytes"}
 		}
 		u.AvatarURL = *in.AvatarURL
@@ -116,16 +115,6 @@ func (s *UserService) UpdateProfile(ctx context.Context, userID string, in model
 		return nil, err
 	}
 	return u, nil
-}
-
-const maxAvatarURLBytes = 2048
-
-func validAvatarURL(raw string) bool {
-	if len(raw) > maxAvatarURLBytes {
-		return false
-	}
-	pu, err := url.Parse(raw)
-	return err == nil && pu.Scheme == "https" && pu.Host != ""
 }
 
 // GenerateUsername derives a unique username from the email's local part.

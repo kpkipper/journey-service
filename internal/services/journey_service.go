@@ -6,21 +6,25 @@ import (
 
 	"github.com/kpkipper/journey-service/internal/models"
 	"github.com/kpkipper/journey-service/internal/repository"
+	"gorm.io/gorm"
 )
 
 var ErrNotFound = errors.New("journey not found")
 var ErrForbidden = errors.New("forbidden")
 
 type JourneyService struct {
-	repo repository.JourneyRepository
+	repo   repository.JourneyRepository
+	access *AccessService
 }
 
-func NewJourneyService(repo repository.JourneyRepository) *JourneyService {
-	return &JourneyService{repo: repo}
+func NewJourneyService(repo repository.JourneyRepository, access *AccessService) *JourneyService {
+	return &JourneyService{repo: repo, access: access}
 }
 
 func (s *JourneyService) Create(ctx context.Context, ownerID string, journey *models.Journey) error {
 	journey.OwnerID = ownerID
+	journey.ID = ""
+	journey.DeletedAt = gorm.DeletedAt{}
 	resetChildren(journey)
 	return s.repo.Create(ctx, journey)
 }
@@ -71,15 +75,23 @@ func (s *JourneyService) owned(ctx context.Context, userID, slug string) (*model
 }
 
 func (s *JourneyService) Update(ctx context.Context, userID, slug string, updated *models.Journey) error {
-	existing, err := s.owned(ctx, userID, slug)
+	a, err := s.access.Load(ctx, slug, userID)
 	if err != nil {
 		return err
 	}
+	if !a.CanEdit() {
+		return ErrForbidden
+	}
+	existing := a.Journey
 
 	updated.ID = existing.ID
 	updated.Slug = existing.Slug
 	updated.CreatedAt = existing.CreatedAt
 	updated.OwnerID = existing.OwnerID
+	updated.DeletedAt = gorm.DeletedAt{}
+	if !a.IsOwner() {
+		updated.EditorsCanInvite = existing.EditorsCanInvite
+	}
 	resetChildren(updated)
 
 	return s.repo.Update(ctx, updated)
