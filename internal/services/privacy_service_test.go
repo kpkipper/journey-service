@@ -500,3 +500,35 @@ func TestPrivacyDatelessTripIsPlanningAndRedactedForStranger(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "planning", own.Status.State)
 }
+
+func TestPrivacyViewSettings(t *testing.T) {
+	f := newPrivacyFixture(t)
+	ctx := context.Background()
+	j := f.newTrip(t, tripOpts{owner: "owner", visibility: models.VisibilityPublic, dep: ongoingDates[0], ret: ongoingDates[1], hideLive: true, draft: true})
+	require.NoError(t, f.db.Model(&models.Journey{}).Where("id = ?", j.ID).Update("editors_can_invite", true).Error)
+	want := &TripSettings{IsDraft: true, Timezone: "Asia/Bangkok", HideLiveStatus: true, EditorsCanInvite: true}
+
+	for _, viewer := range []string{"owner", "edtr", "trav"} {
+		v, err := f.svc.View(ctx, viewer, j.Slug)
+		require.NoError(t, err, viewer)
+		assert.Equal(t, want, v.Settings, viewer)
+		raw, err := json.Marshal(v)
+		require.NoError(t, err)
+		assert.Contains(t, string(raw), `"settings":{"is_draft":true,"timezone":"Asia/Bangkok","hide_live_status":true,"editors_can_invite":true}`)
+	}
+
+	check := func(name, viewer string, redacted bool) {
+		v, err := f.svc.View(ctx, viewer, j.Slug)
+		require.NoError(t, err, name)
+		assert.Equal(t, redacted, v.Redacted, name)
+		assert.Nil(t, v.Settings, name)
+		raw, err := json.Marshal(v)
+		require.NoError(t, err)
+		var m map[string]any
+		require.NoError(t, json.Unmarshal(raw, &m))
+		assert.NotContains(t, m, "settings", name)
+	}
+	check("follower", "fol", false)
+	check("stranger", "str", true)
+	check("anonymous", "", true)
+}

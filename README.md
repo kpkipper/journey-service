@@ -179,6 +179,7 @@ Login is optional; what the response contains depends on the viewer (see [Privac
 
 - always: `id`, `slug`, `title`, `destination`, `country`, `cover_url`, `visibility`, `status` (`{state, days_until, day_number, total_days}`), `role` (the viewer's role: `owner`, `editor`, `traveler` or empty), `redacted`, and `owner` (`username, display_name, avatar_url, bio`; absent for trips created before login existed, which are shown as `public`).
 - when `redacted` is `false`: also `month_start`/`month_end` (`YYYY-MM`), `departure_date`, `return_date`, `updated_at`, `itinerary_days` (all days with their plans; hidden plans only for members) and `members` (the owner and every joined member: `username`, `display_name`, `avatar_url`, `role`, `status`; pending invites are not listed), and `live` while the trip is on now.
+- **members only** (`role` is `owner`, `editor` or `traveler`): `settings` (`{is_draft, timezone, hide_live_status, editors_can_invite}`). Absent for followers and strangers, who must not learn the owner's draft state or live-status choice.
 - **Strangers** (not a member, not a follower) get `redacted: true` until the trip is completed: only the "always" fields, with `status` just `planning` or `upcoming` (counters `0`) and no dates, days, members or `live`. After completion they see the full view like followers.
 
 ---

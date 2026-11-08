@@ -39,6 +39,15 @@ type JourneyView struct {
 	Redacted      bool                  `json:"redacted"`
 	Role          string                `json:"role"`
 	Live          *LiveView             `json:"live,omitempty"`
+	Settings      *TripSettings         `json:"settings,omitempty"` // members only
+}
+
+// TripSettings are the owner-controlled trip settings, shown to members only.
+type TripSettings struct {
+	IsDraft          bool   `json:"is_draft"`
+	Timezone         string `json:"timezone"`
+	HideLiveStatus   bool   `json:"hide_live_status"`
+	EditorsCanInvite bool   `json:"editors_can_invite"`
 }
 
 // LiveView is "on the trip right now" info. TodayPlans is filled for members only.
@@ -194,6 +203,9 @@ func (s *PrivacyService) view(ctx context.Context, viewerID string, a *Access) (
 	}
 	v.MonthStart, v.MonthEnd = start.Format("2006-01"), end.Format("2006-01")
 	v.Status = status
+	if a.Role != "" {
+		v.Settings = &TripSettings{IsDraft: j.IsDraft, Timezone: j.Timezone, HideLiveStatus: j.HideLiveStatus, EditorsCanInvite: j.EditorsCanInvite}
+	}
 	if rel == RelFollower && j.HideLiveStatus && status.State == "ongoing" {
 		// The owner hid live status: followers keep the dates but not "day X of Y".
 		v.Status = tripstatus.Status{State: "upcoming"}
