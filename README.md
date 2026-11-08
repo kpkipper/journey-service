@@ -180,9 +180,9 @@ Returns a single journey with all days and plans, plus `members`: the owner and 
 PUT /journeys/:slug/update
 ```
 
-Requires login; owner or editor (an editor cannot change `editors_can_invite`; it keeps its stored value).
+Requires login; **owner only** (`403` for editors and everyone else).
 
-Replaces the journey including all days and plans. Make sure to include every day and plan you want to keep — anything not sent will be deleted. Days and plans are re-created with fresh IDs on every call, so IDs from an earlier `GET` are stale afterwards. Prefer the fine-grained endpoints under [Itinerary editing](#itinerary-editing) for small changes.
+Updates only `title`, `destination`, `country`, `departure_date` and `return_date`, and replaces all days and plans. `cover_url` and `editors_can_invite` are not touched by this endpoint: change them with `PATCH /journeys/:slug`. A deleted trip is `404`. Make sure to include every day and plan you want to keep — anything not sent will be deleted. Days and plans are re-created with fresh IDs on every call, so IDs from an earlier `GET` are stale afterwards. Prefer the fine-grained endpoints under [Itinerary editing](#itinerary-editing) for small changes.
 
 **Request body:** same as Create
 
@@ -241,7 +241,7 @@ All endpoints are under `/api/v1` and require `Authorization: Bearer <token>`.
 | `POST /me/invites/:id/decline` | – | `200 {}` |
 | `GET /me/journeys` | – | `200` trips the user owns or has joined: `slug, title, destination, departure_date, return_date, cover_url, role`, newest `departure_date` first |
 
-Errors: `403` not allowed, `404` unknown trip / member / invite, `409` already a member or trip full, `400` invalid role or username.
+Errors: `403` not allowed, `404` unknown trip / member / invite, and `404 user not found` when the username on invite is empty or unknown, `409` already a member or trip full, `400` invalid role.
 
 ---
 
@@ -260,7 +260,7 @@ Owner and editors can change a trip piece by piece; travelers and non-members ge
 | `PATCH /journeys/:slug/plans/:planId` | any of `time, description, emoji, map_url, day_id` (`day_id` moves it to another day of the same trip, last position) | `200` plan |
 | `DELETE /journeys/:slug/plans/:planId` | – | `200 {}` |
 
-Rules: only the owner may change `editors_can_invite`; `cover_url` must be `https://` with a host and at most 2048 bytes; `map_url` must be a valid map URL; `return_date` may not be before `departure_date`. A day or plan that belongs to another trip is `404` even if its ID exists. `PUT /journeys/:slug/update` also works for editors, but it replaces all days and plans with fresh IDs.
+Rules: only the owner may change `editors_can_invite`; `cover_url` must be `https://` with a host and at most 2048 bytes; `map_url` must be an `http`/`https` URL with a host and at most 2048 bytes (a scheme-less value such as `maps.app.goo.gl/x` gets `https://` prefixed; other schemes are rejected, and errors on a full create/PUT name the position, e.g. `day 2, plan 3: invalid map_url`); `return_date` may not be before `departure_date`. A day or plan that belongs to another trip is `404` even if its ID exists. `PUT /journeys/:slug/update` is owner-only and replaces all days and plans with fresh IDs; `cover_url` and `editors_can_invite` are PATCH-only. Invite links stop working when their creator can no longer invite (removed, demoted, or `editors_can_invite` turned off).
 
 ---
 
@@ -365,11 +365,12 @@ Trips created before login existed have no owner. To claim them: log in once to 
 # locally, with the production database env loaded (.env or exported POSTGRES_*)
 go run . assign-legacy-owner <username>
 
-# on Railway, from the repo
-railway run go run . assign-legacy-owner <username>
-
-# or in the service shell (the Dockerfile builds the binary as /app/server)
+# production runs on Railway: recommended, in the Railway service shell
+# (the Dockerfile builds the binary as /app/server)
 ./server assign-legacy-owner <username>
+
+# note: `railway run` executes the command on your machine, so it may not reach a private
+# *.railway.internal database host; only use it if the database is reachable from your machine
 ```
 
 ---
