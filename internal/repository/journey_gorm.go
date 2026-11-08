@@ -35,7 +35,7 @@ func (r *journeyGorm) GetBySlug(ctx context.Context, slug string) (*models.Journ
 			return db.Order("date_iso ASC")
 		}).
 		Preload("ItineraryDays.Plans", func(db *gorm.DB) *gorm.DB {
-			return db.Order("time ASC")
+			return db.Order("position ASC, time ASC")
 		}).
 		First(&journey, "slug = ?", slug).Error
 
@@ -47,7 +47,7 @@ func (r *journeyGorm) GetBySlug(ctx context.Context, slug string) (*models.Journ
 
 func (r *journeyGorm) Update(ctx context.Context, journey *models.Journey) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Save(journey).Error; err != nil {
+		if err := tx.Omit("ItineraryDays").Save(journey).Error; err != nil {
 			return err
 		}
 

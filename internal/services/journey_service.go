@@ -21,7 +21,22 @@ func NewJourneyService(repo repository.JourneyRepository) *JourneyService {
 
 func (s *JourneyService) Create(ctx context.Context, ownerID string, journey *models.Journey) error {
 	journey.OwnerID = ownerID
+	resetChildren(journey)
 	return s.repo.Create(ctx, journey)
+}
+
+// resetChildren drops any client-supplied day/plan IDs (so fresh ones are
+// generated and rows of other journeys can't be overwritten) and numbers
+// plans by their order within each day.
+func resetChildren(j *models.Journey) {
+	for i := range j.ItineraryDays {
+		d := &j.ItineraryDays[i]
+		d.ID, d.JourneyID = "", ""
+		for k := range d.Plans {
+			d.Plans[k].ID, d.Plans[k].ItineraryDayID = "", ""
+			d.Plans[k].Position = k
+		}
+	}
 }
 
 func (s *JourneyService) List(ctx context.Context) ([]models.Journey, error) {
@@ -65,6 +80,7 @@ func (s *JourneyService) Update(ctx context.Context, userID, slug string, update
 	updated.Slug = existing.Slug
 	updated.CreatedAt = existing.CreatedAt
 	updated.OwnerID = existing.OwnerID
+	resetChildren(updated)
 
 	return s.repo.Update(ctx, updated)
 }

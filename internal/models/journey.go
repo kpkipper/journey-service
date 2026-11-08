@@ -18,18 +18,20 @@ func newShortID() string {
 }
 
 type Journey struct {
-	ID            string         `gorm:"type:varchar(10);primaryKey" json:"id"`
-	Slug          string         `gorm:"type:varchar(100);uniqueIndex" json:"slug"`
-	OwnerID       string         `gorm:"type:varchar(10);index" json:"owner_id"`
-	Title         string         `gorm:"not null" json:"title"`
-	Destination   string         `gorm:"not null" json:"destination"`
-	Country       string         `json:"country"`
-	DepartureDate time.Time      `gorm:"not null" json:"departure_date"`
-	ReturnDate    time.Time      `gorm:"not null" json:"return_date"`
-	ItineraryDays []ItineraryDay `gorm:"foreignKey:JourneyID;constraint:OnDelete:CASCADE" json:"itinerary_days,omitempty"`
-	CreatedAt     time.Time      `json:"created_at"`
-	UpdatedAt     time.Time      `json:"updated_at"`
-	DeletedAt     gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
+	ID               string         `gorm:"type:varchar(10);primaryKey" json:"id"`
+	Slug             string         `gorm:"type:varchar(100);uniqueIndex" json:"slug"`
+	OwnerID          string         `gorm:"type:varchar(10);index" json:"owner_id"`
+	Title            string         `gorm:"not null" json:"title"`
+	Destination      string         `gorm:"not null" json:"destination"`
+	Country          string         `json:"country"`
+	DepartureDate    time.Time      `gorm:"not null" json:"departure_date"`
+	ReturnDate       time.Time      `gorm:"not null" json:"return_date"`
+	CoverURL         string         `json:"cover_url"`
+	EditorsCanInvite bool           `gorm:"not null;default:false" json:"editors_can_invite"`
+	ItineraryDays    []ItineraryDay `gorm:"foreignKey:JourneyID;constraint:OnDelete:CASCADE" json:"itinerary_days,omitempty"`
+	CreatedAt        time.Time      `json:"created_at"`
+	UpdatedAt        time.Time      `json:"updated_at"`
+	DeletedAt        gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
 }
 
 func toSlugPart(s string) string {
@@ -48,7 +50,7 @@ func (j *Journey) BeforeCreate(tx *gorm.DB) error {
 }
 
 type ItineraryDay struct {
-	ID        string         `gorm:"type:varchar(10);primaryKey" json:"-"`
+	ID        string         `gorm:"type:varchar(10);primaryKey" json:"id"`
 	JourneyID string         `gorm:"type:varchar(10);not null;index" json:"-"`
 	Date      string         `gorm:"not null" json:"date"`
 	DateISO   time.Time      `gorm:"not null" json:"date_iso"`
@@ -64,12 +66,13 @@ func (d *ItineraryDay) BeforeCreate(tx *gorm.DB) error {
 }
 
 type ActivityPlan struct {
-	ID             string `gorm:"type:varchar(10);primaryKey" json:"-"`
-	ItineraryDayID string `gorm:"type:varchar(10);not null;index" json:"-"`
+	ID             string `gorm:"type:varchar(10);primaryKey" json:"id"`
+	ItineraryDayID string `gorm:"type:varchar(10);not null;index" json:"day_id"`
 	Time           string `json:"time"`
 	Description    string `gorm:"not null" json:"description"`
 	Emoji          string `json:"emoji"`
 	MapURL         string `json:"map_url"`
+	Position       int    `gorm:"not null;default:0" json:"position"`
 }
 
 func (p *ActivityPlan) BeforeCreate(tx *gorm.DB) error {

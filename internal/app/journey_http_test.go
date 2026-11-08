@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -126,4 +127,77 @@ func TestHTTP_DeleteAllRemoved(t *testing.T) {
 	}
 	status, _, _ := e.do(t, "GET", "/api/v1/journeys/"+slug, "", "")
 	assert.Equal(t, 200, status)
+}
+
+const tripWithDays = `{"title":"%s","destination":"Tokyo","departure_date":"2026-06-01T00:00:00Z","return_date":"2026-06-07T00:00:00Z","cover_url":"https://x.test/c.jpg","editors_can_invite":true,` +
+	`"itinerary_days":[{"date":"1 Jun","date_iso":"2026-06-01T00:00:00Z","title":"D1","plans":[` +
+	`{"time":"09:00","description":"p0"},{"time":"08:00","description":"p1"},{"time":"07:00","description":"p2"}]}]}`
+
+func (e *env) createTrip(t *testing.T, token, title string) (string, map[string]any) {
+	t.Helper()
+	status, body, raw := e.do(t, "POST", "/api/v1/journeys/create", token, fmt.Sprintf(tripWithDays, title))
+	require.Equal(t, 201, status, raw)
+	slug := body["data"].(map[string]any)["slug"].(string)
+	return slug, e.getTrip(t, slug)
+}
+
+func (e *env) getTrip(t *testing.T, slug string) map[string]any {
+	t.Helper()
+	status, body, raw := e.do(t, "GET", "/api/v1/journeys/"+slug, "", "")
+	require.Equal(t, 200, status, raw)
+	return body["data"].(map[string]any)
+}
+
+func TestHTTP_GetJourneyExposesIDs(t *testing.T) {
+	e := newEnv(t)
+	a := e.login(t, "a@gmail.com")
+	_, trip := e.createTrip(t, a, "A")
+	assert.Equal(t, true, trip["editors_can_invite"])
+	assert.Equal(t, "https://x.test/c.jpg", trip["cover_url"])
+	days := trip["itinerary_days"].([]any)
+	require.Len(t, days, 1)
+	for _, d := range days {
+		day := d.(map[string]any)
+		require.Len(t, day["id"], 10)
+		for _, p := range day["plans"].([]any) {
+			plan := p.(map[string]any)
+			require.Len(t, plan["id"], 10)
+			assert.Equal(t, day["id"], plan["day_id"])
+		}
+	}
+}
+
+func TestHTTP_CreateSetsPositions(t *testing.T) {
+	e := newEnv(t)
+	a := e.login(t, "a@gmail.com")
+	_, trip := e.createTrip(t, a, "A")
+	plans := trip["itinerary_days"].([]any)[0].(map[string]any)["plans"].([]any)
+	require.Len(t, plans, 3)
+	for i, p := range plans {
+		plan := p.(map[string]any)
+		assert.EqualValues(t, i, plan["position"])
+		assert.Equal(t, fmt.Sprintf("p%d", i), plan["description"])
+	}
+}
+
+func TestHTTP_UpdateIgnoresClientChildIDs(t *testing.T) {
+	e := newEnv(t)
+	a := e.login(t, "alice@gmail.com")
+	b := e.login(t, "bob@gmail.com")
+	slugA, _ := e.createTrip(t, a, "A")
+	slugB, tripB := e.createTrip(t, b, "B")
+
+	dayB := tripB["itinerary_days"].([]any)[0].(map[string]any)
+	planB := dayB["plans"].([]any)[0].(map[string]any)
+	body := fmt.Sprintf(`{"title":"A2","destination":"Tokyo","departure_date":"2026-06-01T00:00:00Z","return_date":"2026-06-07T00:00:00Z",`+
+		`"itinerary_days":[{"id":%q,"journey_id":%q,"date":"HACK","date_iso":"2026-06-01T00:00:00Z","title":"HACK","plans":[`+
+		`{"id":%q,"day_id":%q,"time":"01:00","description":"HACK"}]}]}`,
+		dayB["id"], tripB["id"], planB["id"], dayB["id"])
+	status, _, raw := e.do(t, "PUT", "/api/v1/journeys/"+slugA+"/update", a, body)
+	require.Equal(t, 200, status, raw)
+
+	assert.Equal(t, tripB, e.getTrip(t, slugB))
+	newDay := e.getTrip(t, slugA)["itinerary_days"].([]any)[0].(map[string]any)
+	assert.NotEqual(t, dayB["id"], newDay["id"])
+	assert.NotEqual(t, planB["id"], newDay["plans"].([]any)[0].(map[string]any)["id"])
 }
