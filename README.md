@@ -357,6 +357,21 @@ Set these once on the Cloud Run service (console, or `gcloud run services update
 
 **Breaking change:** creating, updating and deleting journeys now requires `Authorization: Bearer <token>`. Existing journeys created before login existed have no owner and are read-only.
 
+### Claiming existing trips
+
+Trips created before login existed have no owner. To claim them: log in once to create your account (optionally set your username via `PATCH /api/v1/me`), then give all ownerless trips to that username. Soft-deleted trips are left alone and the command is safe to re-run. It needs only the database settings, not SMTP or `APP_WEB_URL`.
+
+```bash
+# locally, with the production database env loaded (.env or exported POSTGRES_*)
+go run . assign-legacy-owner <username>
+
+# on Railway, from the repo
+railway run go run . assign-legacy-owner <username>
+
+# or in the service shell (the Dockerfile builds the binary as /app/server)
+./server assign-legacy-owner <username>
+```
+
 ---
 
 ## Getting Started

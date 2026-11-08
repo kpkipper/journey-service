@@ -13,6 +13,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/kpkipper/journey-service/config"
 	"github.com/kpkipper/journey-service/database"
+	"github.com/kpkipper/journey-service/internal/admin"
 	appPkg "github.com/kpkipper/journey-service/internal/app"
 	"github.com/kpkipper/journey-service/internal/auth"
 	"github.com/kpkipper/journey-service/internal/mailer"
@@ -23,6 +24,11 @@ func main() {
 	cfg := config.Get()
 	logger.Init(cfg.App.ENV != "production")
 	log := logger.Get()
+
+	isAssignLegacy := len(os.Args) > 1 && os.Args[1] == "assign-legacy-owner"
+	if isAssignLegacy && len(os.Args) < 3 {
+		log.Fatal().Msg("usage: journey-service assign-legacy-owner <username>")
+	}
 
 	log.Info().Str("host", cfg.DBDSN.Host).Msg("connecting to database")
 	db, err := database.NewConnection(cfg.DBDSN)
@@ -35,6 +41,16 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to migrate database")
 	}
 	log.Info().Msg("database migrated")
+
+	// CLI command: runs before the mailer/web-URL checks so it works on a box without SMTP.
+	if isAssignLegacy {
+		n, err := admin.AssignLegacyOwner(context.Background(), db, os.Args[2])
+		if err != nil {
+			log.Fatal().Err(err).Msg("assign-legacy-owner failed")
+		}
+		log.Info().Int64("journeys", n).Str("username", os.Args[2]).Msg("legacy journeys assigned")
+		os.Exit(0)
+	}
 
 	if cfg.Google.ClientID == "" {
 		log.Warn().Msg("GOOGLE_CLIENT_ID is empty; Google login will be rejected")
