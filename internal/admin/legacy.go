@@ -11,7 +11,9 @@ import (
 )
 
 // AssignLegacyOwner gives every ownerless, non-deleted journey to the user with
-// the given username and returns how many journeys were updated.
+// the given username, makes those trips public and hides their hotel plans
+// (emoji 🏨 or category stay) from non-members. It returns how many journeys
+// were claimed.
 func AssignLegacyOwner(ctx context.Context, db *gorm.DB, username string) (int64, error) {
 	username = strings.ToLower(strings.TrimSpace(username))
 
@@ -24,9 +26,30 @@ func AssignLegacyOwner(ctx context.Context, db *gorm.DB, username string) (int64
 		return 0, err
 	}
 
-	// The soft-delete scope on models.Journey excludes deleted rows.
-	res := db.WithContext(ctx).Model(&models.Journey{}).
-		Where("owner_id IS NULL OR owner_id = ''").
-		Update("owner_id", user.ID)
-	return res.RowsAffected, res.Error
+	var claimed int64
+	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// The soft-delete scope on models.Journey excludes deleted rows.
+		var ids []string
+		if err := tx.Model(&models.Journey{}).
+			Where("owner_id IS NULL OR owner_id = ''").
+			Pluck("id", &ids).Error; err != nil {
+			return err
+		}
+		if len(ids) == 0 {
+			return nil
+		}
+		res := tx.Model(&models.Journey{}).Where("id IN ?", ids).
+			Updates(map[string]any{"owner_id": user.ID, "visibility": models.VisibilityPublic})
+		if res.Error != nil {
+			return res.Error
+		}
+		claimed = res.RowsAffected
+
+		dayIDs := tx.Model(&models.ItineraryDay{}).Select("id").Where("journey_id IN ?", ids)
+		return tx.Model(&models.ActivityPlan{}).
+			Where("itinerary_day_id IN (?)", dayIDs).
+			Where("emoji = ? OR category = ?", "🏨", "stay").
+			Update("hidden_from_public", true).Error
+	})
+	return claimed, err
 }

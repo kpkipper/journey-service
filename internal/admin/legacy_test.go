@@ -59,3 +59,59 @@ func TestAssignLegacyOwnerUnknownUser(t *testing.T) {
 	require.EqualError(t, err, "user not found")
 	assert.Equal(t, int64(0), n)
 }
+
+func TestAssignLegacyOwnerPublicAndHidesHotels(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	ctx := context.Background()
+
+	alice := models.User{Email: "alice@example.com", Username: "alice"}
+	bob := models.User{Email: "bob@example.com", Username: "bob"}
+	require.NoError(t, db.Create(&alice).Error)
+	require.NoError(t, db.Create(&bob).Error)
+
+	mk := func(owner, dest string) (models.Journey, []models.ActivityPlan) {
+		j := models.Journey{Title: dest, Destination: dest, OwnerID: owner, Visibility: models.VisibilityPrivate}
+		require.NoError(t, db.Create(&j).Error)
+		d := models.ItineraryDay{JourneyID: j.ID, Date: "d1"}
+		require.NoError(t, db.Create(&d).Error)
+		plans := []models.ActivityPlan{
+			{ItineraryDayID: d.ID, Description: "hotel emoji", Emoji: "🏨"},
+			{ItineraryDayID: d.ID, Description: "stay cat", Category: "stay"},
+			{ItineraryDayID: d.ID, Description: "ramen", Emoji: "🍜", Category: "food"},
+		}
+		for i := range plans {
+			require.NoError(t, db.Create(&plans[i]).Error)
+		}
+		return j, plans
+	}
+	legacy, legacyPlans := mk("", "Tokyo")
+	bobs, bobPlans := mk(bob.ID, "Nagoya")
+
+	n, err := admin.AssignLegacyOwner(ctx, db, "alice")
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), n)
+
+	var got models.Journey
+	require.NoError(t, db.First(&got, "id = ?", legacy.ID).Error)
+	assert.Equal(t, alice.ID, got.OwnerID)
+	assert.Equal(t, models.VisibilityPublic, got.Visibility)
+	var bobGot models.Journey
+	require.NoError(t, db.First(&bobGot, "id = ?", bobs.ID).Error)
+	assert.Equal(t, models.VisibilityPrivate, bobGot.Visibility, "bob's trip untouched")
+
+	hidden := func(p models.ActivityPlan) bool {
+		var cur models.ActivityPlan
+		require.NoError(t, db.First(&cur, "id = ?", p.ID).Error)
+		return cur.HiddenFromPublic
+	}
+	assert.True(t, hidden(legacyPlans[0]), "hotel emoji plan hidden")
+	assert.True(t, hidden(legacyPlans[1]), "stay plan hidden")
+	assert.False(t, hidden(legacyPlans[2]), "food plan stays visible")
+	for _, p := range bobPlans {
+		assert.False(t, hidden(p), "bob's plans untouched")
+	}
+
+	n, err = admin.AssignLegacyOwner(ctx, db, "alice")
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), n)
+}
