@@ -212,8 +212,12 @@ func (s *ItineraryService) AddPlan(ctx context.Context, userID, slug, dayID stri
 	if in.Description == nil || blank(*in.Description) {
 		return nil, &ValidationError{Message: "description is required"}
 	}
-	if in.MapURL != nil && *in.MapURL != "" && !validMapURL(*in.MapURL) {
-		return nil, errBadMapURL
+	if in.MapURL != nil {
+		u, ok := normalizeMapURL(*in.MapURL)
+		if !ok {
+			return nil, errBadMapURL
+		}
+		in.MapURL = &u
 	}
 	max, err := s.repo.MaxPosition(ctx, d.ID)
 	if err != nil {
@@ -257,8 +261,12 @@ func (s *ItineraryService) UpdatePlan(ctx context.Context, userID, slug, planID 
 	if in.Description != nil && blank(*in.Description) {
 		return nil, &ValidationError{Message: "description must not be empty"}
 	}
-	if in.MapURL != nil && *in.MapURL != "" && !validMapURL(*in.MapURL) {
-		return nil, errBadMapURL
+	if in.MapURL != nil {
+		u, ok := normalizeMapURL(*in.MapURL)
+		if !ok {
+			return nil, errBadMapURL
+		}
+		in.MapURL = &u
 	}
 	if in.DayID != nil && *in.DayID != p.ItineraryDayID {
 		target, err := s.repo.GetDay(ctx, a.Journey.ID, *in.DayID)
@@ -319,7 +327,13 @@ func (s *ItineraryService) ReorderPlans(ctx context.Context, userID, slug, dayID
 	if !sameSet(existing, planIDs) {
 		return &ValidationError{Message: "plan_ids must contain exactly the plans of this day"}
 	}
-	return s.repo.SetPositions(ctx, d.ID, planIDs)
+	if err := s.repo.SetPositions(ctx, d.ID, planIDs); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return &ValidationError{Message: "plans changed, reload and try again"}
+		}
+		return err
+	}
+	return nil
 }
 
 // sameSet reports whether a and b hold the same IDs with no duplicates.

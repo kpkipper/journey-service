@@ -10,6 +10,7 @@ import (
 	"github.com/kpkipper/journey-service/internal/auth"
 	"github.com/kpkipper/journey-service/internal/models"
 	"github.com/kpkipper/journey-service/internal/repository"
+	"gorm.io/gorm"
 )
 
 const MaxTripPeople = 20
@@ -131,9 +132,17 @@ func (s *MemberService) Invite(ctx context.Context, actorID, slug, username, rol
 		Status: models.StatusInvited, InvitedBy: actorID,
 	}
 	if err := s.Members.Create(ctx, m); err != nil {
-		return nil, err
+		return nil, mapCreateErr(err)
 	}
 	return m, nil
+}
+
+// mapCreateErr turns a unique-constraint violation into ErrAlreadyMember.
+func mapCreateErr(err error) error {
+	if errors.Is(err, gorm.ErrDuplicatedKey) {
+		return ErrAlreadyMember
+	}
+	return err
 }
 
 func (s *MemberService) ownerView(ctx context.Context, j *models.Journey) ([]models.MemberView, error) {
@@ -284,8 +293,19 @@ func (s *MemberService) RespondInvite(ctx context.Context, userID, memberID stri
 	if j == nil {
 		return ErrInviteNotFound
 	}
-	m.Status = models.StatusJoined
-	return s.Members.Update(ctx, m)
+	return s.joinInvited(ctx, m.ID)
+}
+
+// joinInvited flips a still-pending invite to joined; a vanished row is ErrInviteNotFound.
+func (s *MemberService) joinInvited(ctx context.Context, id string) error {
+	ok, err := s.Members.SetStatus(ctx, id, models.StatusInvited, models.StatusJoined)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrInviteNotFound
+	}
+	return nil
 }
 
 func (s *MemberService) Leave(ctx context.Context, userID, slug string) error {
@@ -355,8 +375,14 @@ func (s *MemberService) ChangeRole(ctx context.Context, actorID, slug, username,
 	if err != nil {
 		return err
 	}
-	m.Role = role
-	return s.Members.Update(ctx, m)
+	ok, err := s.Members.SetRole(ctx, m.ID, role)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrMemberNotFound
+	}
+	return nil
 }
 
 func (s *MemberService) CreateInviteLink(ctx context.Context, actorID, slug, role string) (string, *models.InviteLink, error) {
@@ -432,14 +458,26 @@ func (s *MemberService) JoinByLink(ctx context.Context, userID, token string) (s
 	if a.IsMember() {
 		return j.Slug, nil
 	}
+	// The link only works while its creator could still hand out invites.
+	if link.CreatedBy != j.OwnerID {
+		ca, err := s.Access.Load(ctx, j.Slug, link.CreatedBy)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				return "", ErrInviteNotFound
+			}
+			return "", err
+		}
+		if !ca.CanInvite() {
+			return "", ErrInviteNotFound
+		}
+	}
 	existing, err := s.Members.Get(ctx, j.ID, userID)
 	if err != nil {
 		return "", err
 	}
 	if existing != nil {
 		// Pending invite: clicking the link is consent. Keeps the invited role.
-		existing.Status = models.StatusJoined
-		if err := s.Members.Update(ctx, existing); err != nil {
+		if err := s.joinInvited(ctx, existing.ID); err != nil {
 			return "", err
 		}
 		return j.Slug, nil
@@ -452,6 +490,10 @@ func (s *MemberService) JoinByLink(ctx context.Context, userID, token string) (s
 		Status: models.StatusJoined, InvitedBy: link.CreatedBy,
 	}
 	if err := s.Members.Create(ctx, m); err != nil {
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			// Lost a race with a concurrent join of the same user: they are a member now.
+			return j.Slug, nil
+		}
 		return "", err
 	}
 	return j.Slug, nil

@@ -27,7 +27,7 @@ func main() {
 
 	isAssignLegacy := len(os.Args) > 1 && os.Args[1] == "assign-legacy-owner"
 	if isAssignLegacy && len(os.Args) < 3 {
-		log.Fatal().Msg("usage: journey-service assign-legacy-owner <username>")
+		log.Fatal().Msg("usage: server assign-legacy-owner <username>")
 	}
 
 	log.Info().Str("host", cfg.DBDSN.Host).Msg("connecting to database")
