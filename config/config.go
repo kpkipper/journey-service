@@ -10,6 +10,15 @@ import (
 type Config struct {
 	App   AppConfig
 	DBDSN Postgres
+	SMTP  SMTP
+}
+
+type SMTP struct {
+	Host     string `envconfig:"SMTP_HOST"`
+	Port     string `envconfig:"SMTP_PORT"`
+	User     string `envconfig:"SMTP_USER"`
+	Password string `envconfig:"SMTP_PASSWORD"`
+	From     string `envconfig:"SMTP_FROM"`
 }
 
 type AppConfig struct {
