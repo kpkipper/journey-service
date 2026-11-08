@@ -77,7 +77,16 @@ func TestHTTP_StrangerSweep(t *testing.T) {
 
 			// The redacted public trip: no dates, no "ongoing", no days or members.
 			_, _, pub := e.do(t, "GET", api+"/journeys/"+publicSlug, tok, "")
-			for _, body := range []string{list, raw, rawM, pub} {
+
+			// The profile: the live public trip is only a redacted "upcoming" item.
+			profile, prof := e.profile(t, tok, "alice")
+			assert.Nil(t, profile["now"])
+			assert.Equal(t, []string{publicSlug}, slugsIn(profile["upcoming"]))
+			assert.Equal(t, []string{publicSlug}, slugsIn(profile["calendar"]))
+			assert.Empty(t, profile["past"])
+			assert.Equal(t, map[string]any{"countries": 0.0, "cities": 0.0, "trips": 0.0}, profile["stats"])
+
+			for _, body := range []string{list, raw, rawM, pub, prof} {
 				assert.NotContains(t, body, followersSlug)
 				assert.NotContains(t, body, "ongoing")
 				assert.NotContains(t, body, "2026-11")

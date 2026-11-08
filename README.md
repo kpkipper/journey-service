@@ -8,6 +8,8 @@
 - [API Reference](#api-reference)
 - [Members](#members)
 - [Itinerary editing](#itinerary-editing)
+- [Privacy](#privacy)
+- [Profile and Follow](#profile-and-follow)
 - [Response Format](#response-format)
 - [Project Structure](#project-structure)
 - [Configuration](#configuration)
@@ -61,7 +63,7 @@ Authorization: Bearer <token>
 | PATCH  | `/api/v1/me`                   | yes  | update `username`, `display_name`, `bio`, `avatar_url` (https, max 2048 bytes) |
 | GET    | `/api/v1/users/:username`      | no   | public profile (no email)                                 |
 
-Journeys have an owner (`owner_id`, set from the logged-in user on create). Creating, updating and deleting a journey requires login; only the owner may update or delete it (`403 forbidden` otherwise). Reading journeys is public. Journeys created before login existed have an empty `owner_id` and are read-only; to hand one to a user, set its `owner_id` in the database by hand.
+Journeys have an owner (`owner_id`, set from the logged-in user on create). Creating, updating and deleting a journey requires login; only the owner may update or delete it (`403 forbidden` otherwise). Who may read a journey, and how much of it, follows the [Privacy](#privacy) rules. Journeys created before login existed have an empty `owner_id` and are read-only; to hand one to a user, set its `owner_id` in the database by hand.
 
 ---
 
@@ -168,7 +170,7 @@ Returns journeys grouped by country. Journeys without a country are grouped unde
 GET /journeys/:slug
 ```
 
-Returns a single journey with all days and plans, plus `members`: the owner and every joined member (`username`, `display_name`, `avatar_url`, `role`, `status`). Pending invites are not listed. Public, no login needed.
+Returns a single journey with all days and plans, plus `members`: the owner and every joined member (`username`, `display_name`, `avatar_url`, `role`, `status`). Pending invites are not listed. Login is optional; what the response contains depends on the viewer (see [Privacy](#privacy)).
 
 **Response:** `200 OK`
 
@@ -251,7 +253,7 @@ Owner and editors can change a trip piece by piece; travelers and non-members ge
 
 | Method + path | Body | Success |
 | ------------- | ---- | ------- |
-| `PATCH /journeys/:slug` | any of `title, destination, country, cover_url, departure_date, return_date, editors_can_invite` | `200` journey |
+| `PATCH /journeys/:slug` | any of `title, destination, country, cover_url, departure_date, return_date, editors_can_invite, visibility, is_draft, timezone, hide_live_status` (`editors_can_invite`, `visibility`, `hide_live_status`: owner only) | `200` journey |
 | `POST /journeys/:slug/days` | `{"date","date_iso","title"}` (`date`, `date_iso` required) | `201` day |
 | `PATCH /journeys/:slug/days/:dayId` | any of `date, date_iso, title` | `200` day |
 | `DELETE /journeys/:slug/days/:dayId` | – | `200 {}` (deletes its plans) |
@@ -261,6 +263,69 @@ Owner and editors can change a trip piece by piece; travelers and non-members ge
 | `DELETE /journeys/:slug/plans/:planId` | – | `200 {}` |
 
 Rules: only the owner may change `editors_can_invite`; `cover_url` must be `https://` with a host and at most 2048 bytes; `map_url` must be an `http`/`https` URL with a host and at most 2048 bytes (a scheme-less value such as `maps.app.goo.gl/x` gets `https://` prefixed; other schemes are rejected, and errors on a full create/PUT name the position, e.g. `day 2, plan 3: invalid map_url`); `return_date` may not be before `departure_date`. A day or plan that belongs to another trip is `404` even if its ID exists. `PUT /journeys/:slug/update` is owner-only and replaces all days and plans with fresh IDs; `cover_url` and `editors_can_invite` are PATCH-only. Invite links stop working when their creator can no longer invite (removed, demoted, or `editors_can_invite` turned off).
+
+---
+
+## Privacy
+
+Every read of a trip goes through one set of rules. The viewer's relation to a trip is, strongest first:
+
+- **member** — the owner, or an editor/traveler who has **joined** (an invite not yet accepted gives nothing)
+- **follower** — follows the trip's owner
+- **stranger** — anyone else, including requests without a token
+
+`visibility` is `public`, `followers` (the default), `link` or `private`. It is set on create or with `PATCH /journeys/:slug` (owner only). Trips created before login existed (no owner) count as `public`.
+
+| `visibility` | Open by slug (`GET /journeys/:slug`) | Shown in lists (`GET /journeys`, profiles) |
+| ------------ | ------------------------------------ | ------------------------------------------ |
+| `public` | everyone | everyone |
+| `followers` | members and followers | members and followers |
+| `link` | everyone who has the slug | members only |
+| `private` | members only | members only |
+
+A trip the viewer may not see answers **`404 journey not found`** on every route, reads and writes alike, so its existence is not revealed.
+
+**What strangers see.** Until a trip is completed, a stranger gets a redacted view (`"redacted": true`): `slug, title, destination, country, cover_url, visibility, owner` and a `status` that is only ever `planning` (draft) or `upcoming` with all counters `0` — never `ongoing`. There are no dates, no `month_start`/`month_end`, no days, plans, members or `live`. Once the trip is completed, strangers see it like a follower does. Lists that hold redacted trips are ordered by creation time (newest first), never by trip dates, so neither the content nor the order of a list tells a stranger that someone is away right now.
+
+**Hidden plans.** A plan with `hidden_from_public: true` is shown to members only. New plans with `category: "stay"` or emoji `🏨` are hidden automatically unless the client sends `hidden_from_public` itself.
+
+**On the trip now.** While a trip is ongoing (counted in calendar days in the trip's `timezone`, default `Asia/Bangkok`), members get `live: {city, day_number, total_days, today_plans}` and followers get `live: {city, day_number, total_days}`. Strangers get nothing. With **`hide_live_status: true`** (owner only), followers get no `live` either and the status shows `upcoming` with counters `0`; they still see the dates.
+
+---
+
+## Profile and Follow
+
+Following is instant (no approval) and one-way. You cannot follow yourself.
+
+| Method + path | Auth | Success |
+| ------------- | ---- | ------- |
+| `POST /users/:username/follow` | yes | `200 {"is_following": true, "followers": n}`; following twice is fine |
+| `DELETE /users/:username/follow` | yes | `200 {"is_following": false, "followers": n}`; unfollowing twice is fine |
+| `GET /users/:username/profile` | optional | `200` profile page, as the viewer may see it |
+
+Errors: `400 cannot follow yourself`, `401` without a token on follow/unfollow, `404 user not found` for an unknown username.
+
+The profile shows the trips the user owns or has **joined** (not pending invites), limited to what the viewer may see in lists (table above). Each trip is the same view `GET /journeys/:slug` returns for that viewer, without days except for `now` when the viewer is a member.
+
+```
+{
+  "user": {"username", "display_name", "avatar_url", "bio"},
+  "followers": 12, "following": 3,
+  "is_following": true,
+  "now": { ...trip, "live": {...} },
+  "upcoming": [ ...trips ],
+  "calendar": [ {"slug", "title", "destination", "country", "departure_date", "return_date", "month_start", "month_end", "companions": [ ...users ]} ],
+  "past": [ ...trips ],
+  "stats": {"countries": 2, "cities": 3, "trips": 3}
+}
+```
+
+- `is_following` — the viewer follows this user (`false` without a token).
+- `now` — a trip the viewer may see live (see [Privacy](#privacy)); `null` otherwise. It is not repeated in `upcoming`.
+- `upcoming` — trips whose status for the viewer is `planning` or `upcoming` (for strangers this includes trips that are actually underway), nearest departure first; newest created first if any of them is redacted.
+- `past` — completed trips, latest return first.
+- `calendar` — every trip on the profile. Dates, months and `companions` (the joined members other than the profile user) only appear when the viewer's view of the trip is not redacted. Ordered by departure, or newest created first if any item is redacted.
+- `stats` — distinct countries, distinct destinations (cities) and number of trips, counted from `past` only, so trips the viewer cannot see never count.
 
 ---
 

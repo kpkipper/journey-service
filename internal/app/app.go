@@ -46,6 +46,10 @@ func New(d Deps) *fiber.App {
 		Now:      d.Now,
 	})
 	userSvc := services.NewUserService(userRepo)
+	followSvc := services.NewFollowService(userRepo, followRepo)
+	profileSvc := services.NewProfileService(services.ProfileDeps{
+		Users: userRepo, Journeys: journeyRepo, Members: memberRepo, Follows: followRepo, Privacy: privacySvc,
+	})
 	authSvc := services.NewAuthService(services.AuthDeps{
 		Users:   userRepo,
 		Auth:    authRepo,
@@ -67,6 +71,8 @@ func New(d Deps) *fiber.App {
 		handlers.NewUserHandler(userSvc),
 		handlers.NewMemberHandler(memberSvc),
 		handlers.NewItineraryHandler(itinerarySvc),
+		handlers.NewFollowHandler(followSvc),
+		handlers.NewProfileHandler(profileSvc),
 		middleware.RequireAuth(authSvc),
 		middleware.OptionalAuth(authSvc),
 	)
