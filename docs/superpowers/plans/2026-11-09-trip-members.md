@@ -347,6 +347,26 @@
 
 ---
 
+### Task 7: คำสั่งยกทริปเก่าให้เจ้าของ
+
+ทริปบน production (Railway) ทุกทริปสร้างก่อนมีระบบ user เลยไม่มีเจ้าของและแก้ไม่ได้ ต้องมีวิธียกให้บัญชีของเจ้าของเว็บหลัง login ครั้งแรก
+
+**Files:**
+- Create: `internal/admin/legacy.go`
+- Modify: `main.go`, `README.md`
+- Test: `internal/admin/legacy_test.go`
+
+**Interfaces:**
+- Produces: `admin.AssignLegacyOwner(ctx context.Context, db *gorm.DB, username string) (int64, error)` — หา user ด้วย username (ตัวเล็ก) ไม่เจอ → error `"user not found"`; `UPDATE journeys SET owner_id = <id> WHERE (owner_id IS NULL OR owner_id = '') AND deleted_at IS NULL`; คืนจำนวนแถว
+- `main.go`: ถ้า `len(os.Args) > 1 && os.Args[1] == "assign-legacy-owner"` → ต้องมี username ใน `os.Args[2]` → ต่อ DB, migrate, เรียก `AssignLegacyOwner`, log จำนวน, `os.Exit(0)`; ไม่ต้องเปิด server และไม่ต้องตรวจ SMTP / APP_WEB_URL
+- README: วิธีใช้ในเครื่อง (`go run . assign-legacy-owner <username>`) และบน Railway (`railway run ./journey-service assign-legacy-owner <username>` หรือรันใน shell ของ service)
+
+- [ ] **Step 1: Write failing tests**: ทริปเก่า 2 อัน (owner `""` 1, NULL 1) + ทริปของ bob 1 + ทริปเก่าที่ถูก soft delete 1 → `AssignLegacyOwner("Alice")` คืน 2, ทริปของ bob ยังเป็นของ bob; เรียกซ้ำคืน 0; username ไม่มี → error
+- [ ] **Step 2:** FAIL · **Step 3:** Implement · **Step 4:** `go test ./...`, `go build ./...` → PASS
+- [ ] **Step 5: Commit** `feat: add assign-legacy-owner command`
+
+---
+
 ## สิ่งที่แผนนี้ตัดสินใจเอง (ไม่ได้มาจาก spec)
 
 - owner ไม่อยู่ในตาราง `journey_members` ใช้ `journeys.owner_id` ตามเดิม ไม่ต้อง backfill ข้อมูลทริปที่มีอยู่
