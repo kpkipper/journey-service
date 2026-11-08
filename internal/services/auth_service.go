@@ -30,6 +30,7 @@ type AuthDeps struct {
 	Auth    repository.AuthRepository
 	UserSvc *UserService
 	Mailer  mailer.Mailer
+	Google  auth.GoogleVerifier
 	WebURL  string
 	Now     func() time.Time // nil = time.Now
 }
@@ -45,8 +46,12 @@ func NewAuthService(d AuthDeps) *AuthService {
 	return &AuthService{AuthDeps: d}
 }
 
+func normalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
 func (s *AuthService) StartEmailLogin(ctx context.Context, email string) error {
-	email = strings.ToLower(strings.TrimSpace(email))
+	email = normalizeEmail(email)
 	addr, err := mail.ParseAddress(email)
 	if err != nil || addr.Address != email {
 		return &ValidationError{Message: "invalid email address"}
@@ -136,6 +141,75 @@ func (s *AuthService) createSession(ctx context.Context, userID string, now time
 		return "", err
 	}
 	return token, nil
+}
+
+const maxDisplayNameRunes = 50
+
+// LoginWithGoogle signs a user in with a Google ID token. A verified Google email
+// is linked to an existing account with the same email (unless that account is
+// already bound to a different Google identity); otherwise a new user is created.
+// Existing users' profile fields are never overwritten.
+func (s *AuthService) LoginWithGoogle(ctx context.Context, idToken string) (string, *models.User, error) {
+	id, err := s.Google.Verify(ctx, idToken)
+	if err != nil || id == nil || !id.EmailVerified || id.Subject == "" {
+		return "", nil, ErrInvalidToken
+	}
+	email := normalizeEmail(id.Email)
+	if email == "" {
+		return "", nil, ErrInvalidToken
+	}
+
+	user, err := s.Users.GetByGoogleSub(ctx, id.Subject)
+	if err != nil {
+		return "", nil, err
+	}
+	if user == nil {
+		user, err = s.Users.GetByEmail(ctx, email)
+		if err != nil {
+			return "", nil, err
+		}
+		if user != nil {
+			if user.GoogleSub != nil && *user.GoogleSub != id.Subject {
+				return "", nil, ErrInvalidToken
+			}
+			sub := id.Subject
+			user.GoogleSub = &sub
+			if err := s.Users.Update(ctx, user); err != nil {
+				return "", nil, err
+			}
+		}
+	}
+	if user == nil {
+		username, err := s.UserSvc.GenerateUsername(ctx, email)
+		if err != nil {
+			return "", nil, err
+		}
+		sub := id.Subject
+		user = &models.User{
+			Email:       email,
+			Username:    username,
+			GoogleSub:   &sub,
+			DisplayName: truncateRunes(id.Name, maxDisplayNameRunes),
+			AvatarURL:   id.Picture,
+		}
+		if err := s.Users.Create(ctx, user); err != nil {
+			return "", nil, err
+		}
+	}
+
+	sessionToken, err := s.createSession(ctx, user.ID, s.Now())
+	if err != nil {
+		return "", nil, err
+	}
+	return sessionToken, user, nil
+}
+
+func truncateRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
 }
 
 func (s *AuthService) Authenticate(ctx context.Context, sessionToken string) (*models.User, error) {
