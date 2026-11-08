@@ -38,7 +38,7 @@ deploy.run:
 		--region $(REGION) \
 		--platform managed \
 		--allow-unauthenticated \
-		--set-env-vars "APP_PORT=8080,DB_DSN=$(DB_DSN)"
+		--set-env-vars "APP_ENV=production,APP_PORT=8080,DB_DSN=$(DB_DSN)"
 
 deploy.hosting:
 	firebase deploy --only hosting

@@ -11,6 +11,7 @@ import (
 	"github.com/kpkipper/journey-service/internal/mailer"
 	"github.com/kpkipper/journey-service/internal/models"
 	"github.com/kpkipper/journey-service/internal/repository"
+	"github.com/kpkipper/journey-service/pkg/logger"
 )
 
 const (
@@ -151,7 +152,11 @@ const maxDisplayNameRunes = 50
 // Existing users' profile fields are never overwritten.
 func (s *AuthService) LoginWithGoogle(ctx context.Context, idToken string) (string, *models.User, error) {
 	id, err := s.Google.Verify(ctx, idToken)
-	if err != nil || id == nil || !id.EmailVerified || id.Subject == "" {
+	if err != nil {
+		logger.Get().Warn().Err(err).Msg("google id token verification failed")
+		return "", nil, ErrInvalidToken
+	}
+	if id == nil || !id.EmailVerified || id.Subject == "" {
 		return "", nil, ErrInvalidToken
 	}
 	email := normalizeEmail(id.Email)
@@ -164,6 +169,11 @@ func (s *AuthService) LoginWithGoogle(ctx context.Context, idToken string) (stri
 		return "", nil, err
 	}
 	if user == nil {
+		// Not a returning Google user: Google must be authoritative for this
+		// address before we link it to an account or create one.
+		if !googleAuthoritative(email, id.HostedDomain) {
+			return "", nil, ErrInvalidToken
+		}
 		user, err = s.Users.GetByEmail(ctx, email)
 		if err != nil {
 			return "", nil, err
@@ -202,6 +212,12 @@ func (s *AuthService) LoginWithGoogle(ctx context.Context, idToken string) (stri
 		return "", nil, err
 	}
 	return sessionToken, user, nil
+}
+
+// googleAuthoritative reports whether Google can vouch for ownership of email:
+// gmail.com addresses, or any address on a Google Workspace domain (hd claim).
+func googleAuthoritative(email, hostedDomain string) bool {
+	return strings.HasSuffix(email, "@gmail.com") || hostedDomain != ""
 }
 
 func truncateRunes(s string, n int) string {

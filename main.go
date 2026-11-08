@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -42,10 +43,16 @@ func main() {
 	var mail mailer.Mailer
 	if cfg.SMTP.Host == "" {
 		if !allowLogMailer(cfg.App.ENV) {
-			log.Fatal().Str("app_env", cfg.App.ENV).Msg("SMTP_HOST must be set unless APP_ENV is empty, development or test (the log mailer prints login links)")
+			log.Fatal().Str("app_env", cfg.App.ENV).Msg("SMTP_HOST must be set unless APP_ENV is development or test (the log mailer prints login links)")
+		}
+		if !validWebURL(cfg.App.WebURL) {
+			log.Warn().Str("app_web_url", cfg.App.WebURL).Msg("APP_WEB_URL is not an absolute http(s) URL; login links will be broken")
 		}
 		mail = mailer.NewLogMailer()
 	} else {
+		if !validWebURL(cfg.App.WebURL) {
+			log.Fatal().Str("app_web_url", cfg.App.WebURL).Msg("APP_WEB_URL must be an absolute http or https URL when SMTP is used")
+		}
 		mail = mailer.NewSMTPMailer(cfg.SMTP)
 	}
 
@@ -68,10 +75,16 @@ func main() {
 // allowLogMailer reports whether the dev-only log mailer (prints raw login links) may be used.
 func allowLogMailer(env string) bool {
 	switch strings.ToLower(strings.TrimSpace(env)) {
-	case "", "development", "test":
+	case "development", "test":
 		return true
 	}
 	return false
+}
+
+// validWebURL reports whether s is an absolute http or https URL with a host.
+func validWebURL(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
 }
 
 func setupGracefulShutdown(app *fiber.App) {

@@ -47,7 +47,7 @@ func (e *googleEnv) userCount(t *testing.T) int64 {
 }
 
 func kipIdentity() *auth.GoogleIdentity {
-	return &auth.GoogleIdentity{Subject: "sub-1", Email: "kip@x.com", EmailVerified: true, Name: "Kip Per", Picture: "http://pic/1.png"}
+	return &auth.GoogleIdentity{Subject: "sub-1", Email: "kip@gmail.com", EmailVerified: true, Name: "Kip Per", Picture: "http://pic/1.png"}
 }
 
 func TestGoogleLogin_NewUser(t *testing.T) {
@@ -59,7 +59,7 @@ func TestGoogleLogin_NewUser(t *testing.T) {
 	assert.NotEmpty(t, sess)
 	assert.Equal(t, "Kip Per", u.DisplayName)
 	assert.Equal(t, "http://pic/1.png", u.AvatarURL)
-	assert.Equal(t, "kip@x.com", u.Email)
+	assert.Equal(t, "kip@gmail.com", u.Email)
 	require.NotNil(t, u.GoogleSub)
 	assert.Equal(t, "sub-1", *u.GoogleSub)
 	authed, err := e.svc.Authenticate(context.Background(), sess)
@@ -91,10 +91,10 @@ func TestGoogleLogin_ReturningUser(t *testing.T) {
 
 func TestGoogleLogin_LinksExistingEmailUser(t *testing.T) {
 	e := newGoogleEnv(t)
-	existing := &models.User{Email: "kip@x.com", Username: "kip"}
+	existing := &models.User{Email: "kip@gmail.com", Username: "kip"}
 	require.NoError(t, e.users.Create(context.Background(), existing))
 	id := kipIdentity()
-	id.Email = "  Kip@X.com "
+	id.Email = "  Kip@GMail.com "
 	e.google.Identities["tok"] = id
 
 	_, u, err := e.svc.LoginWithGoogle(context.Background(), "tok")
@@ -145,12 +145,68 @@ func TestGoogleLogin_BadToken(t *testing.T) {
 func TestGoogleLogin_EmailOwnedByOtherGoogleAccount(t *testing.T) {
 	e := newGoogleEnv(t)
 	other := "other-sub"
-	require.NoError(t, e.users.Create(context.Background(), &models.User{Email: "kip@x.com", Username: "kip", GoogleSub: &other}))
+	require.NoError(t, e.users.Create(context.Background(), &models.User{Email: "kip@gmail.com", Username: "kip", GoogleSub: &other}))
 	e.google.Identities["tok"] = kipIdentity()
 
 	_, _, err := e.svc.LoginWithGoogle(context.Background(), "tok")
 	assert.ErrorIs(t, err, ErrInvalidToken)
-	got, err := e.users.GetByEmail(context.Background(), "kip@x.com")
+	got, err := e.users.GetByEmail(context.Background(), "kip@gmail.com")
 	require.NoError(t, err)
 	assert.Equal(t, "other-sub", *got.GoogleSub)
+}
+
+func workIdentity(hd string) *auth.GoogleIdentity {
+	return &auth.GoogleIdentity{Subject: "sub-w", Email: "kip@corp.example", EmailVerified: true, HostedDomain: hd}
+}
+
+func TestGoogleLogin_NonGmailWithoutHDCannotLink(t *testing.T) {
+	e := newGoogleEnv(t)
+	existing := &models.User{Email: "kip@corp.example", Username: "kip"}
+	require.NoError(t, e.users.Create(context.Background(), existing))
+	e.google.Identities["tok"] = workIdentity("")
+
+	_, _, err := e.svc.LoginWithGoogle(context.Background(), "tok")
+	assert.ErrorIs(t, err, ErrInvalidToken)
+	got, err := e.users.GetByEmail(context.Background(), "kip@corp.example")
+	require.NoError(t, err)
+	assert.Nil(t, got.GoogleSub)
+}
+
+func TestGoogleLogin_NonGmailWithoutHDCannotCreate(t *testing.T) {
+	e := newGoogleEnv(t)
+	e.google.Identities["tok"] = workIdentity("")
+
+	_, _, err := e.svc.LoginWithGoogle(context.Background(), "tok")
+	assert.ErrorIs(t, err, ErrInvalidToken)
+	assert.EqualValues(t, 0, e.userCount(t))
+}
+
+func TestGoogleLogin_NonGmailWithHDCanLinkAndCreate(t *testing.T) {
+	e := newGoogleEnv(t)
+	existing := &models.User{Email: "kip@corp.example", Username: "kip"}
+	require.NoError(t, e.users.Create(context.Background(), existing))
+	e.google.Identities["tok"] = workIdentity("corp.example")
+	_, u, err := e.svc.LoginWithGoogle(context.Background(), "tok")
+	require.NoError(t, err)
+	assert.Equal(t, existing.ID, u.ID)
+	require.NotNil(t, u.GoogleSub)
+
+	e2 := newGoogleEnv(t)
+	e2.google.Identities["tok"] = workIdentity("corp.example")
+	_, u2, err := e2.svc.LoginWithGoogle(context.Background(), "tok")
+	require.NoError(t, err)
+	assert.Equal(t, "kip@corp.example", u2.Email)
+	assert.EqualValues(t, 1, e2.userCount(t))
+}
+
+func TestGoogleLogin_ReturningBySubNonGmailNoHD(t *testing.T) {
+	e := newGoogleEnv(t)
+	sub := "sub-w"
+	existing := &models.User{Email: "kip@corp.example", Username: "kip", GoogleSub: &sub}
+	require.NoError(t, e.users.Create(context.Background(), existing))
+	e.google.Identities["tok"] = workIdentity("")
+
+	_, u, err := e.svc.LoginWithGoogle(context.Background(), "tok")
+	require.NoError(t, err)
+	assert.Equal(t, existing.ID, u.ID)
 }

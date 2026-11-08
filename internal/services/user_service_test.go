@@ -119,3 +119,33 @@ func TestGetPublicProfile(t *testing.T) {
 	_, err = svc.GetPublicProfile(ctx, "ghost")
 	assert.ErrorIs(t, err, ErrUserNotFound)
 }
+
+func TestUpdateProfile_AvatarURL(t *testing.T) {
+	long := "https://x/" + strings.Repeat("a", 2049-len("https://x/"))
+	require.Len(t, long, 2049)
+	cases := []struct {
+		name, url string
+		ok        bool
+	}{
+		{"javascript", "javascript:alert(1)", false},
+		{"http", "http://x/a.png", false},
+		{"no host", "https://", false},
+		{"https", "https://x/a.png", true},
+		{"too long", long, false},
+		{"empty clears", "", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			svc, repo := newUserSvc(t)
+			u := mkUser(t, repo, "a@x.com", "alice")
+			got, err := svc.UpdateProfile(context.Background(), u.ID, models.ProfileUpdate{AvatarURL: strp(c.url)})
+			if c.ok {
+				require.NoError(t, err)
+				assert.Equal(t, c.url, got.AvatarURL)
+				return
+			}
+			var ve *ValidationError
+			assert.ErrorAs(t, err, &ve)
+		})
+	}
+}

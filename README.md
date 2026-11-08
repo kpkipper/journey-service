@@ -43,7 +43,7 @@ Request → Handler → Service → Repository → Database
 
 ## Auth
 
-Login is Google or an email link only (no passwords). A successful login returns a random session `token` (valid 30 days; only its hash is stored). Send it on protected requests:
+All paths below are under the `/api/v1` prefix. Login is Google or an email link only (no passwords). A successful login returns a random session `token` (valid 30 days; only its hash is stored). Send it on protected requests:
 
 ```
 Authorization: Bearer <token>
@@ -51,13 +51,13 @@ Authorization: Bearer <token>
 
 | Method | Path                    | Auth | Description                                               |
 | ------ | ----------------------- | ---- | --------------------------------------------------------- |
-| POST   | `/auth/google`          | no   | log in with a Google ID token                             |
-| POST   | `/auth/email/start`     | no   | email a login link (valid 15 min, one use, 5 per hour)    |
-| POST   | `/auth/email/verify`    | no   | exchange the emailed token for a session token            |
-| POST   | `/auth/logout`          | yes  | revoke the current session                                |
-| GET    | `/me`                   | yes  | current user                                              |
-| PATCH  | `/me`                   | yes  | update `username`, `display_name`, `bio`                  |
-| GET    | `/users/:username`      | no   | public profile (no email)                                 |
+| POST   | `/api/v1/auth/google`          | no   | log in with a Google ID token                             |
+| POST   | `/api/v1/auth/email/start`     | no   | email a login link (valid 15 min, one use, 5 per hour)    |
+| POST   | `/api/v1/auth/email/verify`    | no   | exchange the emailed token for a session token            |
+| POST   | `/api/v1/auth/logout`          | yes  | revoke the current session                                |
+| GET    | `/api/v1/me`                   | yes  | current user                                              |
+| PATCH  | `/me`                   | yes  | update `username`, `display_name`, `bio`, `avatar_url` (https, max 2048 bytes) |
+| GET    | `/api/v1/users/:username`      | no   | public profile (no email)                                 |
 
 Journeys have an owner (`owner_id`, set from the logged-in user on create). Creating, updating and deleting a journey requires login; only the owner may update or delete it (`403 forbidden` otherwise). Reading journeys is public. Journeys created before login existed have an empty `owner_id` and are read-only; to hand one to a user, set its `owner_id` in the database by hand.
 
@@ -292,6 +292,10 @@ cp .env.example .env
 | `APP_WEB_URL` | | web app base URL, used in email login links |
 | `GOOGLE_CLIENT_ID` | | Google OAuth client ID used to verify Google ID tokens |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | | SMTP settings for sending login emails |
+
+### Production
+
+Set these on the deployed service: `APP_ENV=production`, `APP_WEB_URL` (absolute http(s) URL), `GOOGLE_CLIENT_ID`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, and `POSTGRES_*`. The service refuses to start unless `APP_ENV` is `development` or `test` when `SMTP_HOST` is empty (the log mailer prints login links), and refuses to start with SMTP if `APP_WEB_URL` is not an absolute http(s) URL.
 
 ---
 

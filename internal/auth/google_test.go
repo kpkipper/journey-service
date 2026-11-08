@@ -41,10 +41,10 @@ func TestIdentityFromPayload_Issuer(t *testing.T) {
 
 func TestIdentityFromPayload_Claims(t *testing.T) {
 	id, err := identityFromPayload(payload(testClientID, "accounts.google.com", map[string]interface{}{
-		"email": "a@x.com", "email_verified": true, "name": "A", "picture": "http://p",
+		"email": "a@x.com", "email_verified": true, "name": "A", "picture": "http://p", "hd": "x.com",
 	}), testClientID)
 	require.NoError(t, err)
-	assert.Equal(t, &GoogleIdentity{Subject: "sub-1", Email: "a@x.com", EmailVerified: true, Name: "A", Picture: "http://p"}, id)
+	assert.Equal(t, &GoogleIdentity{Subject: "sub-1", Email: "a@x.com", EmailVerified: true, Name: "A", Picture: "http://p", HostedDomain: "x.com"}, id)
 
 	cases := []struct {
 		name   string

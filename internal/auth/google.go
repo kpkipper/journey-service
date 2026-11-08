@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"time"
 
 	"google.golang.org/api/idtoken"
 )
@@ -13,6 +14,7 @@ type GoogleIdentity struct {
 	EmailVerified bool
 	Name          string
 	Picture       string
+	HostedDomain  string // "hd" claim: set for Google Workspace accounts
 }
 
 type GoogleVerifier interface {
@@ -31,6 +33,8 @@ func (g *googleVerifier) Verify(ctx context.Context, token string) (*GoogleIdent
 	if g.clientID == "" {
 		return nil, errors.New("google client id not configured")
 	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 	p, err := idtoken.Validate(ctx, token, g.clientID)
 	if err != nil {
 		return nil, err
@@ -59,5 +63,6 @@ func identityFromPayload(p *idtoken.Payload, clientID string) (*GoogleIdentity, 
 		EmailVerified: verified,
 		Name:          str("name"),
 		Picture:       str("picture"),
+		HostedDomain:  str("hd"),
 	}, nil
 }
