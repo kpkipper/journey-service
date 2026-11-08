@@ -34,6 +34,7 @@ func Models() []any {
 		&models.LoginToken{},
 		&models.JourneyMember{},
 		&models.InviteLink{},
+		&models.Follow{},
 	}
 }
 

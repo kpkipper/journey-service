@@ -17,6 +17,13 @@ func newShortID() string {
 	return id
 }
 
+const (
+	VisibilityPublic    = "public"
+	VisibilityFollowers = "followers"
+	VisibilityLink      = "link"
+	VisibilityPrivate   = "private"
+)
+
 type Journey struct {
 	ID               string         `gorm:"type:varchar(10);primaryKey" json:"id"`
 	Slug             string         `gorm:"type:varchar(100);uniqueIndex" json:"slug"`
@@ -28,6 +35,10 @@ type Journey struct {
 	ReturnDate       time.Time      `gorm:"not null" json:"return_date"`
 	CoverURL         string         `json:"cover_url"`
 	EditorsCanInvite bool           `gorm:"not null;default:false" json:"editors_can_invite"`
+	Visibility       string         `gorm:"type:varchar(10);not null;default:'followers'" json:"visibility"`
+	IsDraft          bool           `gorm:"not null;default:false" json:"is_draft"`
+	Timezone         string         `gorm:"type:varchar(64);not null;default:'Asia/Bangkok'" json:"timezone"`
+	HideLiveStatus   bool           `gorm:"not null;default:false" json:"hide_live_status"`
 	ItineraryDays    []ItineraryDay `gorm:"foreignKey:JourneyID;constraint:OnDelete:CASCADE" json:"itinerary_days,omitempty"`
 	CreatedAt        time.Time      `json:"created_at"`
 	UpdatedAt        time.Time      `json:"updated_at"`
@@ -73,6 +84,9 @@ type ActivityPlan struct {
 	Emoji          string `json:"emoji"`
 	MapURL         string `json:"map_url"`
 	Position       int    `gorm:"not null;default:0" json:"position"`
+	// Category is one of stay, food, sight, transport, other; may be empty.
+	Category         string `gorm:"type:varchar(20)" json:"category"`
+	HiddenFromPublic bool   `gorm:"not null;default:false" json:"hidden_from_public"`
 }
 
 func (p *ActivityPlan) BeforeCreate(tx *gorm.DB) error {
