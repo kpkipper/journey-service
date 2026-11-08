@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kpkipper/journey-service/internal/tripstatus"
 	gonanoid "github.com/matoous/go-nanoid/v2"
 	"gorm.io/gorm"
 )
@@ -97,12 +98,12 @@ func (p *ActivityPlan) BeforeCreate(tx *gorm.DB) error {
 }
 
 type JourneyListItem struct {
-	ID          string `json:"id"`
-	Slug        string `json:"slug"`
-	Title       string `json:"title"`
-	Destination string `json:"destination"`
-	CoverURL    string `json:"cover_url"`
-	Status      string `json:"status"`
+	ID          string            `json:"id"`
+	Slug        string            `json:"slug"`
+	Title       string            `json:"title"`
+	Destination string            `json:"destination"`
+	CoverURL    string            `json:"cover_url"`
+	Status      tripstatus.Status `json:"status"`
 }
 
 type JourneyByCountry struct {

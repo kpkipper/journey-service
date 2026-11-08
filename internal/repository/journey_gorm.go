@@ -23,7 +23,7 @@ func (r *journeyGorm) Create(ctx context.Context, journey *models.Journey) error
 func (r *journeyGorm) List(ctx context.Context) ([]models.Journey, error) {
 	var journeys []models.Journey
 	err := r.db.WithContext(ctx).
-		Order("created_at DESC").
+		Order("created_at DESC, id DESC").
 		Find(&journeys).Error
 	return journeys, err
 }

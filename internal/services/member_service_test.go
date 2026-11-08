@@ -75,7 +75,7 @@ func TestInvite_ByOwner(t *testing.T) {
 	assert.Equal(t, models.StatusInvited, m.Status)
 	assert.Equal(t, "alice", m.InvitedBy)
 
-	pub, err := e.svc.PublicMembers(ctx, j.Slug)
+	pub, err := e.joinedMembers(ctx, j.Slug)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"alice:owner:joined"}, usernames(pub))
 
@@ -89,7 +89,7 @@ func TestInvite_ByOwner(t *testing.T) {
 	assert.Equal(t, InviteView{ID: m.ID, JourneySlug: j.Slug, JourneyTitle: "Trip", Role: "editor", InvitedBy: "alice"}, invites[0])
 
 	require.NoError(t, e.svc.RespondInvite(ctx, "bob", m.ID, true))
-	pub, err = e.svc.PublicMembers(ctx, j.Slug)
+	pub, err = e.joinedMembers(ctx, j.Slug)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"alice:owner:joined", "bob:editor:joined"}, usernames(pub))
 
@@ -242,12 +242,17 @@ func TestLeave(t *testing.T) {
 
 	var ve *ValidationError
 	assert.ErrorAs(t, e.svc.Leave(ctx, "alice", j.Slug), &ve)
+	// The trip is followers-only: a non-member must not learn it exists.
+	assert.ErrorIs(t, e.svc.Leave(ctx, "out", j.Slug), ErrNotFound)
+	assert.ErrorIs(t, e.svc.Leave(ctx, "inv", j.Slug), ErrNotFound)
+	// Once visible to them, "not a member" is the honest answer.
+	require.NoError(t, e.db.Model(&models.Journey{}).Where("id = ?", j.ID).Update("visibility", models.VisibilityPublic).Error)
 	assert.ErrorIs(t, e.svc.Leave(ctx, "out", j.Slug), ErrMemberNotFound)
 	assert.ErrorIs(t, e.svc.Leave(ctx, "inv", j.Slug), ErrMemberNotFound)
 	assert.ErrorIs(t, e.svc.Leave(ctx, "trav", "nope"), ErrNotFound)
 
 	require.NoError(t, e.svc.Leave(ctx, "trav", j.Slug))
-	pub, err := e.svc.PublicMembers(ctx, j.Slug)
+	pub, err := e.joinedMembers(ctx, j.Slug)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"alice:owner:joined"}, usernames(pub))
 }
@@ -319,7 +324,7 @@ func TestInviteLink(t *testing.T) {
 	slug, err := e.svc.JoinByLink(ctx, "bob", token)
 	require.NoError(t, err)
 	assert.Equal(t, j.Slug, slug)
-	pub, _ := e.svc.PublicMembers(ctx, j.Slug)
+	pub, _ := e.joinedMembers(ctx, j.Slug)
 	assert.Contains(t, usernames(pub), "bob:editor:joined")
 
 	// Idempotent for joined members and owner.
@@ -334,7 +339,7 @@ func TestInviteLink(t *testing.T) {
 	e.member(j, "carol", models.RoleTraveler, models.StatusInvited)
 	_, err = e.svc.JoinByLink(ctx, "carol", token)
 	require.NoError(t, err)
-	pub, _ = e.svc.PublicMembers(ctx, j.Slug)
+	pub, _ = e.joinedMembers(ctx, j.Slug)
 	assert.Contains(t, usernames(pub), "carol:traveler:joined")
 
 	// Unknown token, editor limits, listing.
@@ -410,7 +415,29 @@ func TestLegacyTrip(t *testing.T) {
 	_, _, err = e.svc.CreateInviteLink(ctx, "alice", j.Slug, models.RoleTraveler)
 	assert.ErrorIs(t, err, ErrForbidden)
 
-	pub, err := e.svc.PublicMembers(ctx, j.Slug)
+	pub, err := e.joinedMembers(ctx, j.Slug)
 	require.NoError(t, err)
 	assert.Empty(t, pub)
+}
+
+// joinedMembers is the owner plus joined members (invites excluded), as the public view lists them.
+func (e *memberEnv) joinedMembers(ctx context.Context, slug string) ([]models.MemberView, error) {
+	a, err := e.svc.Access.Load(ctx, slug, "")
+	if err != nil {
+		return nil, err
+	}
+	out, err := e.svc.ownerView(ctx, a.Journey)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := e.svc.Members.ListByJourney(ctx, a.Journey.ID)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		if r.Status == models.StatusJoined {
+			out = append(out, r)
+		}
+	}
+	return out, nil
 }

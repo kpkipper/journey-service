@@ -69,7 +69,11 @@ func TestHTTP_StrangerSweep(t *testing.T) {
 
 			// GET /journeys/:slug/members (anonymous is stopped by login, stranger by 404).
 			status, _, rawM := e.do(t, "GET", api+"/journeys/"+followersSlug+"/members", tok, "")
-			assert.Contains(t, []int{401, 404}, status)
+			if tok == "" {
+				assert.Equal(t, 401, status)
+			} else {
+				assert.Equal(t, 404, status)
+			}
 
 			// The redacted public trip: no dates, no "ongoing", no days or members.
 			_, _, pub := e.do(t, "GET", api+"/journeys/"+publicSlug, tok, "")
@@ -102,18 +106,31 @@ func TestHTTP_HiddenIs404(t *testing.T) {
 	assert.Equal(t, 404, status, raw)
 	assert.Equal(t, "journey not found", body["message"])
 
-	// Every other write path answers the same 404 to a stranger.
+	// Every other route answers the same 404 "journey not found" to a stranger.
+	day := e.addDay(t, alice, slug)
+	plan := e.addPlan(t, alice, slug, day, "p")
 	for _, c := range [][3]string{
 		{"PUT", "/update", journeyBody},
 		{"DELETE", "", ""},
 		{"POST", "/days", `{"date":"1 Jun","date_iso":"2026-06-01T00:00:00Z"}`},
+		{"PATCH", "/days/" + day, `{"title":"x"}`},
+		{"DELETE", "/days/" + day, ""},
+		{"POST", "/days/" + day + "/plans", `{"description":"x"}`},
+		{"PUT", "/days/" + day + "/plans/order", `{"plan_ids":["` + plan + `"]}`},
+		{"PATCH", "/plans/" + plan, `{"description":"x"}`},
+		{"DELETE", "/plans/" + plan, ""},
 		{"POST", "/members", `{"username":"alice","role":"traveler"}`},
+		{"PATCH", "/members/alice", `{"role":"traveler"}`},
+		{"DELETE", "/members/alice", ""},
+		{"GET", "/members", ""},
 		{"POST", "/invite-links", `{"role":"traveler"}`},
 		{"GET", "/invite-links", ""},
-		{"GET", "/members", ""},
+		{"DELETE", "/invite-links/abc", ""},
+		{"POST", "/leave", ""},
 	} {
-		status, _, raw := e.do(t, c[0], api+"/journeys/"+slug+c[1], bob, c[2])
+		status, body, raw := e.do(t, c[0], api+"/journeys/"+slug+c[1], bob, c[2])
 		assert.Equal(t, 404, status, "%s %s: %s", c[0], c[1], raw)
+		assert.Equal(t, "journey not found", body["message"], "%s %s", c[0], c[1])
 	}
 
 	// The owner still sees and edits it.
@@ -235,9 +252,9 @@ func TestHTTP_ListOrderAndRedactedItemHasNoDates(t *testing.T) {
 		case oldest, newest: // not completed: redacted
 			assert.ElementsMatch(t, []string{"id", "slug", "title", "destination", "cover_url", "status"}, keysOf(it), raw)
 			assert.NotRegexp(t, `\b20\d\d\b`, it["title"], "redacted title carries no year")
-			assert.Equal(t, "upcoming", it["status"])
+			assert.Equal(t, map[string]any{"state": "upcoming", "days_until": 0.0, "day_number": 0.0, "total_days": 0.0}, it["status"])
 		case middle: // completed: full view
-			assert.Equal(t, "completed", it["status"])
+			assert.Equal(t, "completed", it["status"].(map[string]any)["state"])
 		}
 	}
 	assert.NotContains(t, raw, "ongoing")

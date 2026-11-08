@@ -83,7 +83,7 @@ func (h *JourneyHandler) List(c *fiber.Ctx) error {
 			Title:       title,
 			Destination: fmt.Sprintf("%s, %s", v.Destination, v.Country),
 			CoverURL:    v.CoverURL,
-			Status:      v.Status.State,
+			Status:      v.Status,
 		})
 	}
 

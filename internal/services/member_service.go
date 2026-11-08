@@ -183,27 +183,6 @@ func (s *MemberService) ListMembers(ctx context.Context, actorID, slug string) (
 	return append(out, rows...), nil
 }
 
-func (s *MemberService) PublicMembers(ctx context.Context, slug string) ([]models.MemberView, error) {
-	a, err := s.Access.Load(ctx, slug, "")
-	if err != nil {
-		return nil, err
-	}
-	out, err := s.ownerView(ctx, a.Journey)
-	if err != nil {
-		return nil, err
-	}
-	rows, err := s.Members.ListByJourney(ctx, a.Journey.ID)
-	if err != nil {
-		return nil, err
-	}
-	for _, r := range rows {
-		if r.Status == models.StatusJoined {
-			out = append(out, r)
-		}
-	}
-	return out, nil
-}
-
 func (s *MemberService) MyInvites(ctx context.Context, userID string) ([]InviteView, error) {
 	rows, err := s.Members.ListInvitesForUser(ctx, userID)
 	if err != nil {
@@ -320,6 +299,10 @@ func (s *MemberService) Leave(ctx context.Context, userID, slug string) error {
 		return &ValidationError{Message: "owner cannot leave the trip"}
 	}
 	if !a.IsMember() {
+		// A trip the caller cannot see must look like a missing trip.
+		if err := s.Access.Deny(ctx, a, userID); !errors.Is(err, ErrForbidden) {
+			return err
+		}
 		return ErrMemberNotFound
 	}
 	m, err := s.Members.Get(ctx, a.Journey.ID, userID)
