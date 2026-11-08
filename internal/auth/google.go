@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 
 	"google.golang.org/api/idtoken"
 )
@@ -20,15 +21,29 @@ type GoogleVerifier interface {
 
 type googleVerifier struct{ clientID string }
 
-// NewGoogleVerifier verifies Google ID tokens (signature, expiry, audience) against clientID.
+// NewGoogleVerifier verifies Google ID tokens (signature, expiry, audience, issuer) against clientID.
 func NewGoogleVerifier(clientID string) GoogleVerifier {
 	return &googleVerifier{clientID: clientID}
 }
 
 func (g *googleVerifier) Verify(ctx context.Context, token string) (*GoogleIdentity, error) {
+	// idtoken.Validate skips the audience check when audience is empty, so fail closed.
+	if g.clientID == "" {
+		return nil, errors.New("google client id not configured")
+	}
 	p, err := idtoken.Validate(ctx, token, g.clientID)
 	if err != nil {
 		return nil, err
+	}
+	return identityFromPayload(p, g.clientID)
+}
+
+func identityFromPayload(p *idtoken.Payload, clientID string) (*GoogleIdentity, error) {
+	if p == nil || clientID == "" || p.Audience != clientID {
+		return nil, errors.New("google token audience mismatch")
+	}
+	if p.Issuer != "accounts.google.com" && p.Issuer != "https://accounts.google.com" {
+		return nil, errors.New("google token issuer mismatch")
 	}
 	str := func(k string) string { s, _ := p.Claims[k].(string); return s }
 	verified := false
