@@ -23,6 +23,10 @@ type JourneyPatch struct {
 	DepartureDate    *time.Time `json:"departure_date"`
 	ReturnDate       *time.Time `json:"return_date"`
 	EditorsCanInvite *bool      `json:"editors_can_invite"`
+	Visibility       *string    `json:"visibility"`
+	IsDraft          *bool      `json:"is_draft"`
+	Timezone         *string    `json:"timezone"`
+	HideLiveStatus   *bool      `json:"hide_live_status"`
 }
 
 type DayInput struct {
@@ -32,11 +36,13 @@ type DayInput struct {
 }
 
 type PlanInput struct {
-	Time        *string `json:"time"`
-	Description *string `json:"description"`
-	Emoji       *string `json:"emoji"`
-	MapURL      *string `json:"map_url"`
-	DayID       *string `json:"day_id"`
+	Time             *string `json:"time"`
+	Description      *string `json:"description"`
+	Emoji            *string `json:"emoji"`
+	MapURL           *string `json:"map_url"`
+	DayID            *string `json:"day_id"`
+	Category         *string `json:"category"`
+	HiddenFromPublic *bool   `json:"hidden_from_public"`
 }
 
 type ItineraryService struct {
@@ -68,7 +74,7 @@ func (s *ItineraryService) PatchJourney(ctx context.Context, userID, slug string
 		return nil, err
 	}
 	j := a.Journey
-	if p.EditorsCanInvite != nil && !a.IsOwner() {
+	if (p.EditorsCanInvite != nil || p.Visibility != nil || p.HideLiveStatus != nil) && !a.IsOwner() {
 		return nil, ErrForbidden
 	}
 
@@ -108,6 +114,24 @@ func (s *ItineraryService) PatchJourney(ctx context.Context, userID, slug string
 	}
 	if p.EditorsCanInvite != nil {
 		fields["editors_can_invite"] = *p.EditorsCanInvite
+	}
+	if p.Visibility != nil {
+		if !validVisibility(*p.Visibility) {
+			return nil, errBadVisibility
+		}
+		fields["visibility"] = *p.Visibility
+	}
+	if p.IsDraft != nil {
+		fields["is_draft"] = *p.IsDraft
+	}
+	if p.Timezone != nil {
+		if !validTimezone(*p.Timezone) {
+			return nil, errBadTimezone
+		}
+		fields["timezone"] = *p.Timezone
+	}
+	if p.HideLiveStatus != nil {
+		fields["hide_live_status"] = *p.HideLiveStatus
 	}
 
 	if len(fields) > 0 {
@@ -219,12 +243,18 @@ func (s *ItineraryService) AddPlan(ctx context.Context, userID, slug, dayID stri
 		}
 		in.MapURL = &u
 	}
+	if in.Category != nil && !validCategory(*in.Category) {
+		return nil, errBadCategory
+	}
 	max, err := s.repo.MaxPosition(ctx, d.ID)
 	if err != nil {
 		return nil, err
 	}
 	p := &models.ActivityPlan{ItineraryDayID: d.ID, Position: max + 1}
 	applyPlanInput(p, in)
+	if in.HiddenFromPublic == nil {
+		p.HiddenFromPublic = autoHide(p.Category, p.Emoji)
+	}
 	if err := s.repo.CreatePlan(ctx, p); err != nil {
 		return nil, err
 	}
@@ -243,6 +273,12 @@ func applyPlanInput(p *models.ActivityPlan, in PlanInput) {
 	}
 	if in.MapURL != nil {
 		p.MapURL = *in.MapURL
+	}
+	if in.Category != nil {
+		p.Category = *in.Category
+	}
+	if in.HiddenFromPublic != nil {
+		p.HiddenFromPublic = *in.HiddenFromPublic
 	}
 }
 
@@ -268,6 +304,9 @@ func (s *ItineraryService) UpdatePlan(ctx context.Context, userID, slug, planID 
 		}
 		in.MapURL = &u
 	}
+	if in.Category != nil && !validCategory(*in.Category) {
+		return nil, errBadCategory
+	}
 	if in.DayID != nil && *in.DayID != p.ItineraryDayID {
 		target, err := s.repo.GetDay(ctx, a.Journey.ID, *in.DayID)
 		if err != nil {
@@ -283,7 +322,11 @@ func (s *ItineraryService) UpdatePlan(ctx context.Context, userID, slug, planID 
 		p.ItineraryDayID = target.ID
 		p.Position = max + 1
 	}
+	oldCategory, oldEmoji := p.Category, p.Emoji
 	applyPlanInput(p, in)
+	if in.HiddenFromPublic == nil && (p.Category != oldCategory || p.Emoji != oldEmoji) {
+		p.HiddenFromPublic = autoHide(p.Category, p.Emoji)
+	}
 	if err := s.repo.UpdatePlan(ctx, p); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrPlanNotFound

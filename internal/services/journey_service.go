@@ -28,6 +28,18 @@ func (s *JourneyService) Create(ctx context.Context, ownerID string, journey *mo
 	if err := validateJourney(journey); err != nil {
 		return err
 	}
+	if journey.Visibility == "" {
+		journey.Visibility = models.VisibilityFollowers
+	}
+	if !validVisibility(journey.Visibility) {
+		return errBadVisibility
+	}
+	if journey.Timezone == "" {
+		journey.Timezone = "Asia/Bangkok"
+	}
+	if !validTimezone(journey.Timezone) {
+		return errBadTimezone
+	}
 	journey.OwnerID = ownerID
 	journey.ID = ""
 	journey.DeletedAt = gorm.DeletedAt{}
@@ -65,7 +77,7 @@ func (s *JourneyService) GetBySlug(ctx context.Context, slug string) (*models.Jo
 }
 
 // Update is the owner-only full replace of title, destination, country, dates and the
-// day/plan tree. cover_url and editors_can_invite are PATCH-only and left untouched.
+// day/plan tree. cover_url, editors_can_invite, visibility, is_draft, timezone and hide_live_status are PATCH-only and left untouched.
 func (s *JourneyService) Update(ctx context.Context, userID, slug string, updated *models.Journey) error {
 	a, err := s.access.Load(ctx, slug, userID)
 	if err != nil {

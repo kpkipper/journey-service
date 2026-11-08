@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/kpkipper/journey-service/internal/models"
 )
@@ -66,7 +67,49 @@ func validateJourney(j *models.Journey) error {
 				return &ValidationError{Message: fmt.Sprintf("day %d, plan %d: invalid map_url", di+1, pi+1)}
 			}
 			plans[pi].MapURL = u
+			if !validCategory(plans[pi].Category) {
+				return &ValidationError{Message: fmt.Sprintf("day %d, plan %d: invalid category", di+1, pi+1)}
+			}
+			// A plain bool in the full body cannot tell "absent" from false, so an explicit
+			// true is kept and otherwise the value is derived from category/emoji.
+			plans[pi].HiddenFromPublic = plans[pi].HiddenFromPublic || autoHide(plans[pi].Category, plans[pi].Emoji)
 		}
 	}
 	return nil
 }
+
+var errBadCategory = &ValidationError{Message: "category must be one of: stay, food, sight, transport, other"}
+
+// validCategory accepts the empty string or one of the known plan categories.
+func validCategory(c string) bool {
+	switch c {
+	case "", "stay", "food", "sight", "transport", "other":
+		return true
+	}
+	return false
+}
+
+// autoHide reports whether a plan is hidden from non-members by default.
+func autoHide(category, emoji string) bool {
+	return category == "stay" || emoji == "🏨"
+}
+
+func validVisibility(v string) bool {
+	switch v {
+	case models.VisibilityPublic, models.VisibilityFollowers, models.VisibilityLink, models.VisibilityPrivate:
+		return true
+	}
+	return false
+}
+
+// validTimezone accepts an IANA zone name that time.LoadLocation resolves; "" and "Local" are rejected.
+func validTimezone(tz string) bool {
+	if tz == "" || tz == "Local" {
+		return false
+	}
+	_, err := time.LoadLocation(tz)
+	return err == nil
+}
+
+var errBadVisibility = &ValidationError{Message: "visibility must be one of: public, followers, link, private"}
+var errBadTimezone = &ValidationError{Message: "timezone must be a valid IANA time zone name"}

@@ -70,6 +70,7 @@ func (r *itineraryGorm) UpdatePlan(ctx context.Context, p *models.ActivityPlan) 
 	return updateOne(r.db.WithContext(ctx).Model(&models.ActivityPlan{}).Where("id = ?", p.ID), map[string]any{
 		"itinerary_day_id": p.ItineraryDayID, "time": p.Time, "description": p.Description,
 		"emoji": p.Emoji, "map_url": p.MapURL, "position": p.Position,
+		"category": p.Category, "hidden_from_public": p.HiddenFromPublic,
 	})
 }
 
