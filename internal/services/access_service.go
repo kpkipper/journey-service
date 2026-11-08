@@ -42,7 +42,9 @@ func (s *AccessService) Load(ctx context.Context, slug, userID string) (*Access,
 		if err != nil {
 			return nil, err
 		}
-		if m != nil && m.Status == models.StatusJoined {
+		// Only editor/traveler are valid stored roles; owner comes solely from journeys.owner_id.
+		if m != nil && m.Status == models.StatusJoined &&
+			(m.Role == models.RoleEditor || m.Role == models.RoleTraveler) {
 			a.Role = m.Role
 		}
 	}

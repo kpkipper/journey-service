@@ -17,7 +17,7 @@ func TestAccess(t *testing.T) {
 	ctx := context.Background()
 	svc := NewAccessService(repository.NewJourneyRepository(db), repository.NewMemberRepository(db))
 
-	for _, u := range []string{"owner", "edtr", "trav", "inv", "out"} {
+	for _, u := range []string{"owner", "edtr", "trav", "inv", "out", "fake"} {
 		require.NoError(t, db.Create(&models.User{ID: u, Email: u + "@x.com", Username: u, DisplayName: u}).Error)
 	}
 	newJourney := func(ownerID string, editorsCanInvite bool) *models.Journey {
@@ -42,6 +42,8 @@ func TestAccess(t *testing.T) {
 	addMember(open, "edtr", models.RoleEditor, models.StatusJoined)
 
 	legacy := newJourney("", true)
+	addMember(legacy, "edtr", models.RoleEditor, models.StatusJoined)
+	addMember(closed, "fake", "owner", models.StatusJoined)
 
 	tests := []struct {
 		name               string
@@ -58,6 +60,9 @@ func TestAccess(t *testing.T) {
 		{"anonymous", closed.Slug, "", "", false, false, false, false},
 		{"legacy trip anonymous", legacy.Slug, "", "", false, false, false, false},
 		{"legacy trip signed-in user", legacy.Slug, "out", "", false, false, false, false},
+		{"member row with stored role owner is ignored", closed.Slug, "fake", "", false, false, false, false},
+		{"member of other trip", open.Slug, "trav", "", false, false, false, false},
+		{"joined editor on legacy trip stays read-only", legacy.Slug, "edtr", "editor", false, false, false, true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
