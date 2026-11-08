@@ -29,6 +29,9 @@ func Models() []any {
 		&models.Journey{},
 		&models.ItineraryDay{},
 		&models.ActivityPlan{},
+		&models.User{},
+		&models.Session{},
+		&models.LoginToken{},
 	}
 }
 
