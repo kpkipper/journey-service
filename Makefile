@@ -38,7 +38,9 @@ deploy.run:
 		--region $(REGION) \
 		--platform managed \
 		--allow-unauthenticated \
-		--set-env-vars "APP_ENV=production,APP_PORT=8080,DB_DSN=$(DB_DSN)"
+		--update-env-vars "APP_ENV=production,APP_PORT=8080"
+# --update-env-vars keeps the env vars already set on the service (POSTGRES_*,
+# APP_WEB_URL, GOOGLE_CLIENT_ID, SMTP_*). Set those once in Cloud Run; see README "Production".
 
 deploy.hosting:
 	firebase deploy --only hosting
