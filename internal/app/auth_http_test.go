@@ -90,6 +90,27 @@ func TestHTTP_MeWithoutToken(t *testing.T) {
 	assert.Equal(t, 401, resp.StatusCode)
 }
 
+func TestHTTP_AuthBoundary(t *testing.T) {
+	e := newEnv(t)
+	tok := e.login(t, "a@gmail.com")
+
+	req := httptest.NewRequest("GET", "/api/v1/me", nil)
+	req.Header.Set("Authorization", "bearer "+tok)
+	resp, err := e.app.Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, 200, resp.StatusCode)
+
+	unknown := strings.Repeat("ab", 32)
+	status, body, _ := e.do(t, "GET", "/api/v1/me", unknown, "")
+	assert.Equal(t, 401, status)
+	assert.Equal(t, "unauthorized", body["message"])
+
+	status, _, _ = e.do(t, "POST", "/api/v1/auth/logout", "", "")
+	assert.Equal(t, 401, status)
+	status, _, _ = e.do(t, "PATCH", "/api/v1/me", "", `{"username":"kipper"}`)
+	assert.Equal(t, 401, status)
+}
+
 func TestHTTP_PatchMe(t *testing.T) {
 	e := newEnv(t)
 	a := e.login(t, "a@gmail.com")

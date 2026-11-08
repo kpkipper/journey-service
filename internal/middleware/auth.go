@@ -6,6 +6,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/kpkipper/journey-service/internal/services"
+	"github.com/kpkipper/journey-service/pkg/logger"
 	"github.com/kpkipper/journey-service/pkg/utils"
 )
 
@@ -33,6 +34,10 @@ func RequireAuth(svc *services.AuthService) fiber.Handler {
 			if errors.Is(err, services.ErrUnauthorized) {
 				return utils.Error(c, fiber.StatusUnauthorized, "unauthorized")
 			}
+			logger.Get().Error().Err(err).
+				Str("request_id", c.GetRespHeader("X-Request-ID")).
+				Str("path", c.Path()).
+				Msg("authenticate failed")
 			return utils.Error(c, fiber.StatusInternalServerError, "internal server error")
 		}
 		c.Locals(userIDKey, user.ID)

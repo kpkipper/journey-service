@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -40,8 +41,8 @@ func main() {
 
 	var mail mailer.Mailer
 	if cfg.SMTP.Host == "" {
-		if cfg.App.ENV == "production" {
-			log.Fatal().Msg("SMTP_HOST must be set when APP_ENV=production (the log mailer prints login links)")
+		if !allowLogMailer(cfg.App.ENV) {
+			log.Fatal().Str("app_env", cfg.App.ENV).Msg("SMTP_HOST must be set unless APP_ENV is empty, development or test (the log mailer prints login links)")
 		}
 		mail = mailer.NewLogMailer()
 	} else {
@@ -62,6 +63,15 @@ func main() {
 	if err := app.Listen(addr); err != nil {
 		log.Error().Err(err).Msg("server error")
 	}
+}
+
+// allowLogMailer reports whether the dev-only log mailer (prints raw login links) may be used.
+func allowLogMailer(env string) bool {
+	switch strings.ToLower(strings.TrimSpace(env)) {
+	case "", "development", "test":
+		return true
+	}
+	return false
 }
 
 func setupGracefulShutdown(app *fiber.App) {
