@@ -28,6 +28,18 @@ func (r *journeyGorm) List(ctx context.Context) ([]models.Journey, error) {
 	return journeys, err
 }
 
+func (r *journeyGorm) GetByID(ctx context.Context, id string) (*models.Journey, error) {
+	var journey models.Journey
+	err := r.db.WithContext(ctx).First(&journey, "id = ?", id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &journey, nil
+}
+
 func (r *journeyGorm) GetBySlug(ctx context.Context, slug string) (*models.Journey, error) {
 	var journey models.Journey
 	err := r.db.WithContext(ctx).
