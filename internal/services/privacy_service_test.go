@@ -212,6 +212,7 @@ func TestPrivacyView(t *testing.T) {
 
 			// Always visible.
 			assert.Equal(t, tc.j.Slug, v.Slug)
+			assert.Equal(t, tc.j.ID, v.ID)
 			assert.Equal(t, "Winter trip", v.Title)
 			assert.Equal(t, "Nagoya", v.Destination)
 			assert.Equal(t, "Japan", v.Country)
@@ -220,9 +221,10 @@ func TestPrivacyView(t *testing.T) {
 			assert.Equal(t, tc.role, v.Role)
 			assert.Equal(t, tc.redacted, v.Redacted)
 			if tc.j.OwnerID == "" {
-				assert.Equal(t, models.PublicProfile{}, v.Owner)
+				assert.Nil(t, v.Owner)
 				assert.Equal(t, models.VisibilityPublic, v.Visibility)
 			} else {
+				require.NotNil(t, v.Owner)
 				assert.Equal(t, "owner", v.Owner.Username)
 				assert.Equal(t, "D owner", v.Owner.DisplayName)
 				assert.Equal(t, "a/owner", v.Owner.AvatarURL)
@@ -306,10 +308,10 @@ func TestPrivacyView(t *testing.T) {
 		require.NoError(t, err)
 		var m map[string]any
 		require.NoError(t, json.Unmarshal(raw, &m))
-		for _, k := range []string{"departure_date", "return_date", "days", "members", "live"} {
+		for _, k := range []string{"departure_date", "return_date", "itinerary_days", "members", "live", "updated_at"} {
 			assert.NotContains(t, m, k)
 		}
-		for _, k := range []string{"slug", "title", "destination", "country", "cover_url", "visibility", "owner", "status", "redacted", "role"} {
+		for _, k := range []string{"id", "slug", "title", "destination", "country", "cover_url", "visibility", "owner", "status", "redacted", "role"} {
 			assert.Contains(t, m, k)
 		}
 		assert.NotContains(t, string(raw), "ongoing")
@@ -369,7 +371,7 @@ func TestPrivacyView(t *testing.T) {
 		require.NoError(t, err)
 		var m map[string]any
 		require.NoError(t, json.Unmarshal(raw, &m))
-		for _, k := range []string{"departure_date", "return_date", "days", "members", "live", "month_start", "month_end", "cover_url"} {
+		for _, k := range []string{"departure_date", "return_date", "itinerary_days", "members", "live", "month_start", "id", "updated_at", "month_end", "cover_url"} {
 			assert.Contains(t, m, k)
 		}
 		live := m["live"].(map[string]any)
@@ -478,4 +480,23 @@ func TestPrivacyListable(t *testing.T) {
 			assert.True(t, f.svc.Listable(rel, &models.Journey{Visibility: vis}), "legacy %s/%s", vis, rel)
 		}
 	}
+}
+
+func TestPrivacyDatelessTripIsPlanningAndRedactedForStranger(t *testing.T) {
+	f := newPrivacyFixture(t)
+	ctx := context.Background()
+	j := f.newTrip(t, tripOpts{owner: "owner", visibility: models.VisibilityPublic, dep: ongoingDates[0], ret: ongoingDates[0]})
+	require.NoError(t, f.db.Model(j).Updates(map[string]any{
+		"departure_date": time.Time{}, "return_date": time.Time{},
+	}).Error)
+
+	v, err := f.svc.View(ctx, "str", j.Slug)
+	require.NoError(t, err)
+	assert.True(t, v.Redacted)
+	assert.Equal(t, "upcoming", v.Status.State)
+	assert.Nil(t, v.DepartureDate)
+
+	own, err := f.svc.View(ctx, "owner", j.Slug)
+	require.NoError(t, err)
+	assert.Equal(t, "planning", own.Status.State)
 }

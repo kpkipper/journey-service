@@ -161,7 +161,7 @@ func TestHTTP_GetJourneyExposesIDs(t *testing.T) {
 	slug, trip := e.createTrip(t, a, "A")
 	assert.True(t, e.dbJourney(t, slug).EditorsCanInvite, "editors_can_invite is PATCH-only state, not in the public view")
 	assert.Equal(t, "https://x.test/c.jpg", trip["cover_url"])
-	days := trip["days"].([]any)
+	days := trip["itinerary_days"].([]any)
 	require.Len(t, days, 1)
 	for _, d := range days {
 		day := d.(map[string]any)
@@ -178,7 +178,7 @@ func TestHTTP_CreateSetsPositions(t *testing.T) {
 	e := newEnv(t)
 	a := e.login(t, "a@gmail.com")
 	_, trip := e.createTrip(t, a, "A")
-	plans := trip["days"].([]any)[0].(map[string]any)["plans"].([]any)
+	plans := trip["itinerary_days"].([]any)[0].(map[string]any)["plans"].([]any)
 	require.Len(t, plans, 3)
 	for i, p := range plans {
 		plan := p.(map[string]any)
@@ -194,7 +194,7 @@ func TestHTTP_UpdateIgnoresClientChildIDs(t *testing.T) {
 	slugA, _ := e.createTrip(t, a, "A")
 	slugB, tripB := e.createTrip(t, b, "B")
 
-	dayB := tripB["days"].([]any)[0].(map[string]any)
+	dayB := tripB["itinerary_days"].([]any)[0].(map[string]any)
 	planB := dayB["plans"].([]any)[0].(map[string]any)
 	body := fmt.Sprintf(`{"title":"A2","destination":"Tokyo","departure_date":"2026-06-01T00:00:00Z","return_date":"2026-06-07T00:00:00Z",`+
 		`"itinerary_days":[{"id":%q,"journey_id":%q,"date":"HACK","date_iso":"2026-06-01T00:00:00Z","title":"HACK","plans":[`+
@@ -204,7 +204,7 @@ func TestHTTP_UpdateIgnoresClientChildIDs(t *testing.T) {
 	require.Equal(t, 200, status, raw)
 
 	assert.Equal(t, tripB, e.getTrip(t, slugB))
-	newDay := e.getTrip(t, slugA)["days"].([]any)[0].(map[string]any)
+	newDay := e.getTrip(t, slugA)["itinerary_days"].([]any)[0].(map[string]any)
 	assert.NotEqual(t, dayB["id"], newDay["id"])
 	assert.NotEqual(t, planB["id"], newDay["plans"].([]any)[0].(map[string]any)["id"])
 }
@@ -217,7 +217,7 @@ func TestHTTP_UpdateSetsPositions(t *testing.T) {
 	status, _, raw := e.do(t, "PUT", "/api/v1/journeys/"+slug+"/update", a, body)
 	require.Equal(t, 200, status, raw)
 
-	plans := e.getTrip(t, slug)["days"].([]any)[0].(map[string]any)["plans"].([]any)
+	plans := e.getTrip(t, slug)["itinerary_days"].([]any)[0].(map[string]any)["plans"].([]any)
 	require.Len(t, plans, 3)
 	for i, p := range plans {
 		plan := p.(map[string]any)
@@ -232,7 +232,7 @@ func TestHTTP_CreateIgnoresClientChildIDs(t *testing.T) {
 	b := e.login(t, "bob@gmail.com")
 	slugB, tripB := e.createTrip(t, b, "B")
 
-	dayB := tripB["days"].([]any)[0].(map[string]any)
+	dayB := tripB["itinerary_days"].([]any)[0].(map[string]any)
 	planB := dayB["plans"].([]any)[0].(map[string]any)
 	body := fmt.Sprintf(`{"visibility":"public","title":"A","destination":"Tokyo","departure_date":"2026-06-01T00:00:00Z","return_date":"2026-06-07T00:00:00Z",`+
 		`"itinerary_days":[{"id":%q,"journey_id":%q,"date":"HACK","date_iso":"2026-06-01T00:00:00Z","title":"HACK","plans":[`+
@@ -243,7 +243,7 @@ func TestHTTP_CreateIgnoresClientChildIDs(t *testing.T) {
 	slugA := resp["data"].(map[string]any)["slug"].(string)
 
 	assert.Equal(t, tripB, e.getTrip(t, slugB))
-	newDay := e.getTrip(t, slugA)["days"].([]any)[0].(map[string]any)
+	newDay := e.getTrip(t, slugA)["itinerary_days"].([]any)[0].(map[string]any)
 	assert.NotEqual(t, dayB["id"], newDay["id"])
 	assert.NotEqual(t, planB["id"], newDay["plans"].([]any)[0].(map[string]any)["id"])
 }

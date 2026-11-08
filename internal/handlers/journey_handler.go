@@ -76,6 +76,8 @@ func (h *JourneyHandler) List(c *fiber.Ctx) error {
 		title := v.Title
 		if !v.Redacted {
 			title = fmt.Sprintf("%s %d", v.Destination, v.DepartureDate.Year())
+		} else {
+			title = v.Destination
 		}
 		groupedMap[country].Plan = append(groupedMap[country].Plan, models.JourneyListItem{
 			ID:          j.ID,

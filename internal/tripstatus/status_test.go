@@ -42,6 +42,9 @@ func TestCompute(t *testing.T) {
 		{"time-of-day ignored", time.Date(2026, 12, 12, 17, 0, 0, 0, time.UTC), time.Date(2026, 12, 16, 23, 0, 0, 0, time.UTC), "Asia/Bangkok", false, time.Date(2026, 12, 12, 1, 0, 0, 0, bkk), Status{State: "ongoing", DayNumber: 1, TotalDays: 5}},
 		{"return before departure is single day", dep, day(2026, 12, 10), "Asia/Bangkok", false, time.Date(2026, 12, 12, 9, 0, 0, 0, bkk), Status{State: "ongoing", DayNumber: 1, TotalDays: 1}},
 		{"return before departure completed next day", dep, day(2026, 12, 10), "Asia/Bangkok", false, time.Date(2026, 12, 13, 9, 0, 0, 0, bkk), Status{State: "completed", TotalDays: 1}},
+		{"zero dates are planning", time.Time{}, time.Time{}, "Asia/Bangkok", false, time.Date(2026, 12, 13, 12, 0, 0, 0, bkk), Status{State: "planning"}},
+		{"zero departure is planning", time.Time{}, ret, "Asia/Bangkok", false, time.Date(2026, 12, 13, 12, 0, 0, 0, bkk), Status{State: "planning"}},
+		{"zero return is planning", dep, time.Time{}, "Asia/Bangkok", false, time.Date(2026, 12, 13, 12, 0, 0, 0, bkk), Status{State: "planning"}},
 		{"one day before", dep, ret, "Asia/Bangkok", false, time.Date(2026, 12, 11, 23, 59, 0, 0, bkk), Status{State: "upcoming", DaysUntil: 1, TotalDays: 5}},
 	}
 	for _, tc := range tests {

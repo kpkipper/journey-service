@@ -111,3 +111,18 @@ func slugsIn(list any) []string {
 	}
 	return out
 }
+
+func TestHTTP_ProfileHidesPrivateTripFromPendingInvitee(t *testing.T) {
+	e := newEnv(t)
+	alice := e.named(t, "alice@gmail.com", "alice")
+	bob := e.named(t, "bob@gmail.com", "bob")
+	secret := e.trip(t, alice, "Secret", "private", pastDates)
+	open := e.trip(t, alice, "Open", "public", pastDates)
+
+	status, _, raw := e.do(t, "POST", api+"/journeys/"+secret+"/members", alice, `{"username":"bob","role":"traveler"}`)
+	require.Equal(t, 201, status, raw)
+
+	p, raw := e.profile(t, bob, "alice")
+	assert.Equal(t, []string{open}, slugsIn(p["past"]), raw)
+	assert.NotContains(t, raw, secret)
+}

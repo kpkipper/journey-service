@@ -43,13 +43,13 @@ func TestHTTP_PlanEditing(t *testing.T) {
 	a := e.addPlan(t, alice, slug, day1, "A")
 	b := e.addPlan(t, alice, slug, day1, "B")
 	c := e.addPlan(t, alice, slug, day1, "C")
-	assert.Equal(t, []string{"A", "B", "C"}, planDescs(e.detail(t, slug)["days"].([]any)[0]))
+	assert.Equal(t, []string{"A", "B", "C"}, planDescs(e.detail(t, slug)["itinerary_days"].([]any)[0]))
 
 	// reorder
 	status, _, raw = e.do(t, "PUT", api+"/journeys/"+slug+"/days/"+day1+"/plans/order", alice,
 		`{"plan_ids":["`+c+`","`+a+`","`+b+`"]}`)
 	require.Equal(t, 200, status, raw)
-	assert.Equal(t, []string{"C", "A", "B"}, planDescs(e.detail(t, slug)["days"].([]any)[0]))
+	assert.Equal(t, []string{"C", "A", "B"}, planDescs(e.detail(t, slug)["itinerary_days"].([]any)[0]))
 
 	// bad reorder
 	status, _, _ = e.do(t, "PUT", api+"/journeys/"+slug+"/days/"+day1+"/plans/order", alice, `{"plan_ids":["`+a+`"]}`)
@@ -59,7 +59,7 @@ func TestHTTP_PlanEditing(t *testing.T) {
 	status, body, raw = e.do(t, "PATCH", api+"/journeys/"+slug+"/plans/"+a, alice, `{"description":"A2","day_id":"`+day2+`"}`)
 	require.Equal(t, 200, status, raw)
 	assert.Equal(t, "A2", body["data"].(map[string]any)["description"])
-	days := e.detail(t, slug)["days"].([]any)
+	days := e.detail(t, slug)["itinerary_days"].([]any)
 	assert.Equal(t, []string{"C", "B"}, planDescs(days[0]))
 	assert.Equal(t, []string{"A2"}, planDescs(days[1]))
 
@@ -68,10 +68,10 @@ func TestHTTP_PlanEditing(t *testing.T) {
 	assert.Equal(t, 200, status)
 	status, _, raw = e.do(t, "PATCH", api+"/journeys/"+slug+"/days/"+day1, alice, `{"title":"Renamed"}`)
 	require.Equal(t, 200, status, raw)
-	assert.Equal(t, "Renamed", e.detail(t, slug)["days"].([]any)[0].(map[string]any)["title"])
+	assert.Equal(t, "Renamed", e.detail(t, slug)["itinerary_days"].([]any)[0].(map[string]any)["title"])
 	status, _, _ = e.do(t, "DELETE", api+"/journeys/"+slug+"/days/"+day2, alice, "")
 	assert.Equal(t, 200, status)
-	days = e.detail(t, slug)["days"].([]any)
+	days = e.detail(t, slug)["itinerary_days"].([]any)
 	require.Len(t, days, 1)
 	assert.Equal(t, []string{"C"}, planDescs(days[0]))
 
@@ -95,7 +95,7 @@ func TestHTTP_CrossTripPlan(t *testing.T) {
 	assert.Equal(t, 404, status)
 	status, _, _ = e.do(t, "PATCH", api+"/journeys/"+slugA+"/days/"+dayB, alice, `{"title":"x"}`)
 	assert.Equal(t, 404, status)
-	assert.Equal(t, []string{"B plan"}, planDescs(e.detail(t, slugB)["days"].([]any)[0]))
+	assert.Equal(t, []string{"B plan"}, planDescs(e.detail(t, slugB)["itinerary_days"].([]any)[0]))
 }
 
 func TestHTTP_PatchJourney(t *testing.T) {

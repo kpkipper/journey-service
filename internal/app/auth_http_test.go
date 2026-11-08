@@ -25,21 +25,23 @@ type env struct {
 	app  *fiber.App
 	mail *testutil.CaptureMailer
 	db   *gorm.DB
+	now  *time.Time // the app clock; tests may advance it
 }
 
 func newEnv(t *testing.T) *env {
 	t.Helper()
 	mail := &testutil.CaptureMailer{}
-	now := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+	now := new(time.Time)
+	*now = time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
 	db := testutil.NewTestDB(t)
 	a := app.New(app.Deps{
 		DB:     db,
 		Google: &testutil.FakeGoogle{Identities: map[string]*auth.GoogleIdentity{}},
 		Mailer: mail,
 		WebURL: "http://web.test/",
-		Now:    func() time.Time { return now },
+		Now:    func() time.Time { return *now },
 	})
-	return &env{app: a, mail: mail, db: db}
+	return &env{app: a, mail: mail, db: db, now: now}
 }
 
 func (e *env) do(t *testing.T, method, path, token, body string) (int, map[string]any, string) {

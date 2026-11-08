@@ -35,9 +35,9 @@ func daysBetween(a, b time.Time) int {
 
 // Compute returns the trip status. departure and ret are stored calendar days
 // (their UTC date is used, time-of-day ignored); "today" is now in the trip's
-// timezone. An invalid tz falls back to Asia/Bangkok.
+// timezone. A draft or a trip without dates is "planning". An invalid tz falls back to Asia/Bangkok.
 func Compute(departure, ret time.Time, tz string, isDraft bool, now time.Time) Status {
-	if isDraft {
+	if isDraft || departure.IsZero() || ret.IsZero() {
 		return Status{State: "planning"}
 	}
 	dep := calendarDay(departure.UTC())

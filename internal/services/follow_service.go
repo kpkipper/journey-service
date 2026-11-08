@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"strings"
 
 	"github.com/kpkipper/journey-service/internal/models"
 	"github.com/kpkipper/journey-service/internal/repository"
@@ -19,7 +18,7 @@ func NewFollowService(users repository.UserRepository, follows repository.Follow
 }
 
 func (s *FollowService) user(ctx context.Context, username string) (*models.User, error) {
-	u, err := s.users.GetByUsername(ctx, strings.ToLower(username))
+	u, err := s.users.GetByUsername(ctx, normalizeUsername(username))
 	if err != nil {
 		return nil, err
 	}

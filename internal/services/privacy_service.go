@@ -17,23 +17,25 @@ const (
 )
 
 // JourneyView is a trip as one viewer may see it. Redacted views (stranger,
-// trip not completed) omit the empty fields (months, dates, days, members, live)
+// trip not completed) omit the empty fields (months, dates, itinerary_days, members, live)
 // entirely from JSON.
 type JourneyView struct {
+	ID            string                `json:"id"`
 	Slug          string                `json:"slug"`
 	Title         string                `json:"title"`
 	Destination   string                `json:"destination"`
 	Country       string                `json:"country"`
 	CoverURL      string                `json:"cover_url"`
 	Visibility    string                `json:"visibility"`
-	Owner         models.PublicProfile  `json:"owner"`
+	Owner         *models.PublicProfile `json:"owner,omitempty"` // nil for legacy trips
 	Status        tripstatus.Status     `json:"status"`
 	MonthStart    string                `json:"month_start,omitempty"` // "YYYY-MM"; empty when redacted
 	MonthEnd      string                `json:"month_end,omitempty"`   // "YYYY-MM"; empty when redacted
 	DepartureDate *time.Time            `json:"departure_date,omitempty"`
 	ReturnDate    *time.Time            `json:"return_date,omitempty"`
-	Days          []models.ItineraryDay `json:"days,omitempty"`
+	Days          []models.ItineraryDay `json:"itinerary_days,omitempty"`
 	Members       []models.MemberView   `json:"members,omitempty"`
+	UpdatedAt     *time.Time            `json:"updated_at,omitempty"` // not set when redacted
 	Redacted      bool                  `json:"redacted"`
 	Role          string                `json:"role"`
 	Live          *LiveView             `json:"live,omitempty"`
@@ -164,7 +166,7 @@ func (s *PrivacyService) view(ctx context.Context, viewerID string, a *Access) (
 	status := tripstatus.Compute(j.DepartureDate, j.ReturnDate, j.Timezone, j.IsDraft, s.Now())
 
 	v := &JourneyView{
-		Slug: j.Slug, Title: j.Title, Destination: j.Destination, Country: j.Country, CoverURL: j.CoverURL,
+		ID: j.ID, Slug: j.Slug, Title: j.Title, Destination: j.Destination, Country: j.Country, CoverURL: j.CoverURL,
 		Visibility: j.Visibility,
 		Owner:      owner.profile,
 		Role:       a.Role,
@@ -196,6 +198,8 @@ func (s *PrivacyService) view(ctx context.Context, viewerID string, a *Access) (
 		// The owner hid live status: followers keep the dates but not "day X of Y".
 		v.Status = tripstatus.Status{State: "upcoming"}
 	}
+	updated := j.UpdatedAt
+	v.UpdatedAt = &updated
 	dep, ret := j.DepartureDate, j.ReturnDate
 	v.DepartureDate, v.ReturnDate = &dep, &ret
 	v.Days = filterDays(j.ItineraryDays, rel == RelMember)
@@ -217,7 +221,7 @@ func (s *PrivacyService) view(ctx context.Context, viewerID string, a *Access) (
 }
 
 type ownerInfo struct {
-	profile models.PublicProfile
+	profile *models.PublicProfile
 	member  *models.MemberView
 }
 
@@ -230,7 +234,7 @@ func (s *PrivacyService) ownerProfile(ctx context.Context, j *models.Journey) (o
 		return ownerInfo{}, err
 	}
 	return ownerInfo{
-		profile: models.PublicProfile{Username: u.Username, DisplayName: u.DisplayName, AvatarURL: u.AvatarURL, Bio: u.Bio},
+		profile: &models.PublicProfile{Username: u.Username, DisplayName: u.DisplayName, AvatarURL: u.AvatarURL, Bio: u.Bio},
 		member: &models.MemberView{
 			Username: u.Username, DisplayName: u.DisplayName, AvatarURL: u.AvatarURL,
 			Role: models.RoleOwner, Status: models.StatusJoined,

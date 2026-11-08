@@ -375,3 +375,26 @@ func TestFollowService(t *testing.T) {
 	_, _, err = f.follow.Counts(ctx, "nobody")
 	assert.ErrorIs(t, err, ErrUserNotFound)
 }
+
+func TestProfile_DatelessTripNotCountedInStats(t *testing.T) {
+	f := newProfileFixture(t)
+	f.trip(t, pTrip{owner: "alice", visibility: models.VisibilityPublic, dest: "Tokyo", country: "Japan", dates: [2]time.Time{}})
+	f.trip(t, pTrip{owner: "alice", visibility: models.VisibilityPublic, dest: "Osaka", country: "Japan", dates: completedDates})
+
+	p, err := f.svc.Get(context.Background(), "str", "alice")
+	require.NoError(t, err)
+	assert.Equal(t, ProfileStats{Countries: 1, Cities: 1, Trips: 1}, p.Stats)
+	require.Len(t, p.Upcoming, 1)
+	assert.True(t, p.Upcoming[0].Redacted)
+}
+
+func TestProfile_NowViewFallsBackWhenTripVanishes(t *testing.T) {
+	f := newProfileFixture(t)
+	j := f.trip(t, pTrip{owner: "alice", visibility: models.VisibilityPublic, dates: ongoingDates})
+	listView := &JourneyView{Slug: j.Slug, Role: "owner"}
+	require.NoError(t, f.db.Delete(j).Error) // deleted between listing and reload
+
+	got, err := f.svc.nowView(context.Background(), "alice", profileTrip{j: j, v: listView})
+	require.NoError(t, err)
+	assert.Same(t, listView, got)
+}

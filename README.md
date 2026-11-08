@@ -139,7 +139,7 @@ Requires login. The owner is the logged-in user (any `owner_id` in the body is i
 GET /journeys
 ```
 
-Returns journeys grouped by country. Journeys without a country are grouped under `"Other"`.
+Returns journeys grouped by country. Journeys without a country are grouped under `"Other"`. Only trips the viewer may see in lists appear (private trips and other people's `link` trips never do). Each item carries `cover_url` and the viewer's `status`. The title is `"<destination> <year>"`; for a trip the viewer sees redacted it is the destination only, with no year.
 
 **Response:** `200 OK`
 
@@ -153,8 +153,11 @@ Returns journeys grouped by country. Journeys without a country are grouped unde
       "plan": [
         {
           "id": "uuid",
-          "title": "Japan Trip 2026",
-          "destination": "Tokyo, Japan"
+          "slug": "tokyo-abc123",
+          "title": "Tokyo 2026",
+          "destination": "Tokyo, Japan",
+          "cover_url": "https://...",
+          "status": {"state": "completed", "days_until": 0, "day_number": 0, "total_days": 5}
         }
       ]
     }
@@ -170,9 +173,13 @@ Returns journeys grouped by country. Journeys without a country are grouped unde
 GET /journeys/:slug
 ```
 
-Returns a single journey with all days and plans, plus `members`: the owner and every joined member (`username`, `display_name`, `avatar_url`, `role`, `status`). Pending invites are not listed. Login is optional; what the response contains depends on the viewer (see [Privacy](#privacy)).
+Login is optional; what the response contains depends on the viewer (see [Privacy](#privacy)). A trip the viewer may not see is `404 journey not found`.
 
-**Response:** `200 OK`
+**Response:** `200 OK`, `data` has:
+
+- always: `id`, `slug`, `title`, `destination`, `country`, `cover_url`, `visibility`, `status` (`{state, days_until, day_number, total_days}`), `role` (the viewer's role: `owner`, `editor`, `traveler` or empty), `redacted`, and `owner` (`username, display_name, avatar_url, bio`; absent for trips created before login existed, which are shown as `public`).
+- when `redacted` is `false`: also `month_start`/`month_end` (`YYYY-MM`), `departure_date`, `return_date`, `updated_at`, `itinerary_days` (all days with their plans; hidden plans only for members) and `members` (the owner and every joined member: `username`, `display_name`, `avatar_url`, `role`, `status`; pending invites are not listed), and `live` while the trip is on now.
+- **Strangers** (not a member, not a follower) get `redacted: true` until the trip is completed: only the "always" fields, with `status` just `planning` or `upcoming` (counters `0`) and no dates, days, members or `live`. After completion they see the full view like followers.
 
 ---
 
@@ -184,7 +191,7 @@ PUT /journeys/:slug/update
 
 Requires login; **owner only** (`403` for editors and everyone else).
 
-Updates only `title`, `destination`, `country`, `departure_date` and `return_date`, and replaces all days and plans. `cover_url` and `editors_can_invite` are not touched by this endpoint: change them with `PATCH /journeys/:slug`. A deleted trip is `404`. Make sure to include every day and plan you want to keep — anything not sent will be deleted. Days and plans are re-created with fresh IDs on every call, so IDs from an earlier `GET` are stale afterwards. Prefer the fine-grained endpoints under [Itinerary editing](#itinerary-editing) for small changes.
+Updates only `title`, `destination`, `country`, `departure_date` and `return_date`, and replaces all days and plans. `cover_url` and `editors_can_invite` are not touched by this endpoint: change them with `PATCH /journeys/:slug`. A deleted trip is `404`. Make sure to include every day and plan you want to keep — anything not sent will be deleted. Days and plans are re-created with fresh IDs on every call, so IDs from an earlier `GET` are stale afterwards. Prefer the fine-grained endpoints under [Itinerary editing](#itinerary-editing) for small changes. Note that a full `PUT` cannot un-hide a hotel plan (plans of category `stay` or emoji `🏨` are hidden automatically): use the plan PATCH with `hidden_from_public: false`.
 
 **Request body:** same as Create
 
@@ -221,7 +228,7 @@ A trip has one **owner** (`journeys.owner_id`) and up to 19 other people (owner 
 | owner | everything: edit, invite editors and travelers, change roles, remove members, manage and revoke invite links, change `editors_can_invite`, delete the trip |
 | editor | edit the itinerary and journey fields; invite travelers (only if `editors_can_invite` is on); leave |
 | traveler | read the members list; leave |
-| invited / outsider | nothing beyond the public read (`403` on member endpoints) |
+| invited / outsider | nothing beyond the read they are allowed by [Privacy](#privacy) (`404` if the trip is hidden from them, `403` on member endpoints if they can see it) |
 
 Only the owner can invite someone as `editor`. Journeys without an owner (created before login existed) are read-only: no invites, no edits.
 
@@ -243,13 +250,13 @@ All endpoints are under `/api/v1` and require `Authorization: Bearer <token>`.
 | `POST /me/invites/:id/decline` | – | `200 {}` |
 | `GET /me/journeys` | – | `200` trips the user owns or has joined: `slug, title, destination, departure_date, return_date, cover_url, role`, newest `departure_date` first |
 
-Errors: `403` not allowed, `404` unknown trip / member / invite, and `404 user not found` when the username on invite is empty or unknown, `409` already a member or trip full, `400` invalid role.
+Errors: `403` not allowed (the trip is visible to you but you may not do this), `404` unknown or hidden trip / member / invite, and `404 user not found` when the username on invite is empty or unknown, `409` already a member or trip full, `400` invalid role.
 
 ---
 
 ## Itinerary editing
 
-Owner and editors can change a trip piece by piece; travelers and non-members get `403`. All endpoints require login. Absent JSON fields are left unchanged.
+Owner and editors can change a trip piece by piece; travelers and other viewers who can see the trip get `403`; a trip hidden from the caller is `404`. All endpoints require login. Absent JSON fields are left unchanged.
 
 | Method + path | Body | Success |
 | ------------- | ---- | ------- |
@@ -259,7 +266,7 @@ Owner and editors can change a trip piece by piece; travelers and non-members ge
 | `DELETE /journeys/:slug/days/:dayId` | – | `200 {}` (deletes its plans) |
 | `POST /journeys/:slug/days/:dayId/plans` | `{"description","time","emoji","map_url"}` (`description` required) | `201` plan, appended last |
 | `PUT /journeys/:slug/days/:dayId/plans/order` | `{"plan_ids":[...]}` (exactly the day's plans) | `200 {}` |
-| `PATCH /journeys/:slug/plans/:planId` | any of `time, description, emoji, map_url, day_id` (`day_id` moves it to another day of the same trip, last position) | `200` plan |
+| `PATCH /journeys/:slug/plans/:planId` | any of `time, description, emoji, map_url, category, hidden_from_public, day_id` (`day_id` moves it to another day of the same trip, last position) | `200` plan |
 | `DELETE /journeys/:slug/plans/:planId` | – | `200 {}` |
 
 Rules: only the owner may change `editors_can_invite`; `cover_url` must be `https://` with a host and at most 2048 bytes; `map_url` must be an `http`/`https` URL with a host and at most 2048 bytes (a scheme-less value such as `maps.app.goo.gl/x` gets `https://` prefixed; other schemes are rejected, and errors on a full create/PUT name the position, e.g. `day 2, plan 3: invalid map_url`); `return_date` may not be before `departure_date`. A day or plan that belongs to another trip is `404` even if its ID exists. `PUT /journeys/:slug/update` is owner-only and replaces all days and plans with fresh IDs; `cover_url` and `editors_can_invite` are PATCH-only. Invite links stop working when their creator can no longer invite (removed, demoted, or `editors_can_invite` turned off).
@@ -424,7 +431,7 @@ Set these once on the Cloud Run service (console, or `gcloud run services update
 
 ### Claiming existing trips
 
-Trips created before login existed have no owner. To claim them: log in once to create your account (optionally set your username via `PATCH /api/v1/me`), then give all ownerless trips to that username. Soft-deleted trips are left alone and the command is safe to re-run. It needs only the database settings, not SMTP or `APP_WEB_URL`.
+Trips created before login existed have no owner. To claim them: log in once to create your account (optionally set your username via `PATCH /api/v1/me`), then give all ownerless trips to that username. The command also makes those trips `public` and hides their hotel plans (emoji `🏨` or category `stay`) from non-members. It logs how many trips were claimed. Soft-deleted trips are left alone and the command is safe to re-run (it then claims 0). It needs only the database settings, not SMTP or `APP_WEB_URL`.
 
 ```bash
 # locally, with the production database env loaded (.env or exported POSTGRES_*)

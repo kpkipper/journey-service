@@ -3,6 +3,7 @@ package services
 import (
 	"cmp"
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"time"
@@ -75,7 +76,7 @@ type profileTrip struct {
 // may see it: buckets come from the (possibly masked) view status, never from
 // the real dates, and a bucket holding a redacted trip is ordered by created_at.
 func (s *ProfileService) Get(ctx context.Context, viewerID, username string) (*ProfileView, error) {
-	u, err := s.Users.GetByUsername(ctx, strings.ToLower(username))
+	u, err := s.Users.GetByUsername(ctx, normalizeUsername(username))
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +188,11 @@ func (s *ProfileService) nowView(ctx context.Context, viewerID string, t profile
 	if t.v.Role == "" {
 		return t.v, nil
 	}
-	return s.Privacy.View(ctx, viewerID, t.j.Slug)
+	full, err := s.Privacy.View(ctx, viewerID, t.j.Slug)
+	if errors.Is(err, ErrNotFound) {
+		return t.v, nil // trip vanished or turned private meanwhile: keep the list view
+	}
+	return full, err
 }
 
 func sortByCreatedDesc(ts []profileTrip) {

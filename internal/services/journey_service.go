@@ -65,17 +65,6 @@ func (s *JourneyService) List(ctx context.Context) ([]models.Journey, error) {
 	return s.repo.List(ctx)
 }
 
-func (s *JourneyService) GetBySlug(ctx context.Context, slug string) (*models.Journey, error) {
-	journey, err := s.repo.GetBySlug(ctx, slug)
-	if err != nil {
-		return nil, err
-	}
-	if journey == nil {
-		return nil, ErrNotFound
-	}
-	return journey, nil
-}
-
 // Update is the owner-only full replace of title, destination, country, dates and the
 // day/plan tree. cover_url, editors_can_invite, visibility, is_draft, timezone and hide_live_status are PATCH-only and left untouched.
 func (s *JourneyService) Update(ctx context.Context, userID, slug string, updated *models.Journey) error {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/kpkipper/journey-service/internal/models"
 	"github.com/kpkipper/journey-service/internal/repository"
+	"github.com/kpkipper/journey-service/internal/services"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -287,4 +288,73 @@ func TestHTTP_MyJourneysHasStatus(t *testing.T) {
 	item := body["data"].([]any)[0].(map[string]any)
 	st := item["status"].(map[string]any)
 	assert.Equal(t, "ongoing", st["state"], "members see the real status")
+}
+
+func TestHTTP_PrivateTripAbsentFromStrangerList(t *testing.T) {
+	e := newEnv(t)
+	alice := e.named(t, "alice@gmail.com", "alice")
+	carol := e.named(t, "carol@gmail.com", "carol")
+	private := e.trip(t, alice, "Secret", "private", pastDates)
+	public := e.trip(t, alice, "Open", "public", pastDates)
+
+	for name, tok := range map[string]string{"anonymous": "", "stranger": carol} {
+		assert.Equal(t, []string{public}, e.listSlugs(t, tok), name)
+	}
+	assert.ElementsMatch(t, []string{public, private}, e.listSlugs(t, alice))
+}
+
+func TestHTTP_ExpiredSessionIsAnonymousOnOptionalAuth(t *testing.T) {
+	e := newEnv(t)
+	alice := e.named(t, "alice@gmail.com", "alice")
+	private := e.trip(t, alice, "Secret", "private", pastDates)
+	public := e.trip(t, alice, "Open", "public", pastDates)
+
+	status, _, raw := e.do(t, "GET", api+"/journeys/"+private, alice, "")
+	require.Equal(t, 200, status, raw)
+
+	*e.now = e.now.Add(services.SessionTTL + time.Hour)
+
+	status, _, raw = e.do(t, "GET", api+"/journeys/"+private, alice, "")
+	assert.Equal(t, 404, status, "expired token is an anonymous viewer: private trip hidden")
+	assert.Equal(t, []string{public}, e.listSlugs(t, alice))
+	status, body, raw := e.do(t, "GET", api+"/journeys/"+public, alice, "")
+	require.Equal(t, 200, status, raw)
+	assert.Equal(t, "", body["data"].(map[string]any)["role"])
+	status, _, _ = e.do(t, "GET", api+"/me/journeys", alice, "")
+	assert.Equal(t, 401, status, "protected routes still reject it")
+}
+
+func TestHTTP_ListRedactedTitleIsDestinationOnly(t *testing.T) {
+	e := newEnv(t)
+	alice := e.named(t, "alice@gmail.com", "alice")
+	future := e.trip(t, alice, "My Secret Name", "public", futureDates)
+	past := e.trip(t, alice, "Whatever", "public", pastDates)
+
+	_, body, raw := e.do(t, "GET", api+"/journeys", "", "")
+	titles := map[string]string{}
+	for _, g := range body["data"].([]any) {
+		for _, it := range g.(map[string]any)["plan"].([]any) {
+			m := it.(map[string]any)
+			titles[m["slug"].(string)] = m["title"].(string)
+		}
+	}
+	assert.Equal(t, "Tokyo", titles[future], raw)
+	assert.Equal(t, "Tokyo 2026", titles[past], raw)
+}
+
+func TestHTTP_JourneyDetailShape(t *testing.T) {
+	e := newEnv(t)
+	alice := e.named(t, "alice@gmail.com", "alice")
+	slug := e.trip(t, alice, "Past", "public", pastDates)
+	_, body, _ := e.do(t, "GET", api+"/journeys/"+slug, "", "")
+	data := body["data"].(map[string]any)
+	assert.NotEmpty(t, data["id"])
+	assert.NotEmpty(t, data["updated_at"])
+	assert.Contains(t, data, "owner")
+
+	slug = e.trip(t, alice, "Future", "public", futureDates)
+	_, body, _ = e.do(t, "GET", api+"/journeys/"+slug, "", "")
+	data = body["data"].(map[string]any)
+	assert.NotEmpty(t, data["id"])
+	assert.NotContains(t, data, "updated_at", "redacted view has no updated_at")
 }
