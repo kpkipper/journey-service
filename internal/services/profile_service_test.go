@@ -349,15 +349,20 @@ func TestFollowService(t *testing.T) {
 	f := newProfileFixture(t)
 	ctx := context.Background()
 
-	err := f.follow.Follow(ctx, "bob", "bob")
+	_, err := f.follow.Follow(ctx, "bob", "bob")
 	var ve *ValidationError
 	require.True(t, errors.As(err, &ve), "got %v", err)
 	assert.Equal(t, "cannot follow yourself", ve.Message)
-	assert.ErrorIs(t, f.follow.Follow(ctx, "bob", "nobody"), ErrUserNotFound)
-	assert.ErrorIs(t, f.follow.Unfollow(ctx, "bob", "nobody"), ErrUserNotFound)
+	_, err = f.follow.Follow(ctx, "bob", "nobody")
+	assert.ErrorIs(t, err, ErrUserNotFound)
+	_, err = f.follow.Unfollow(ctx, "bob", "nobody")
+	assert.ErrorIs(t, err, ErrUserNotFound)
 
-	require.NoError(t, f.follow.Follow(ctx, "bob", "alice"))
-	require.NoError(t, f.follow.Follow(ctx, "bob", "Alice"), "following twice is fine")
+	require.NoError(t, f.db.Model(&models.User{}).Where("id = ?", "alice").Update("follow_approval", false).Error)
+	_, err = f.follow.Follow(ctx, "bob", "alice")
+	require.NoError(t, err)
+	_, err = f.follow.Follow(ctx, "bob", "Alice")
+	require.NoError(t, err, "following twice is fine")
 	followers, following, err := f.follow.Counts(ctx, "alice")
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), followers) // fol + bob
@@ -366,8 +371,10 @@ func TestFollowService(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), following)
 
-	require.NoError(t, f.follow.Unfollow(ctx, "bob", "alice"))
-	require.NoError(t, f.follow.Unfollow(ctx, "bob", "alice"), "unfollowing twice is fine")
+	_, err = f.follow.Unfollow(ctx, "bob", "alice")
+	require.NoError(t, err)
+	_, err = f.follow.Unfollow(ctx, "bob", "alice")
+	require.NoError(t, err, "unfollowing twice is fine")
 	followers, _, err = f.follow.Counts(ctx, "alice")
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), followers)

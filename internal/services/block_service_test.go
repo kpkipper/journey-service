@@ -34,13 +34,17 @@ func TestBlockService(t *testing.T) {
 	})
 
 	t.Run("follow after block fails both sides, unblock restores", func(t *testing.T) {
-		assert.ErrorIs(t, fsvc.Follow(ctx, "alice", "bob"), ErrUserNotFound)
-		assert.ErrorIs(t, fsvc.Follow(ctx, "bob", "alice"), ErrUserNotFound)
-		require.NoError(t, fsvc.Follow(ctx, "str", "bob"))
+		_, err := fsvc.Follow(ctx, "alice", "bob")
+		assert.ErrorIs(t, err, ErrUserNotFound)
+		_, err = fsvc.Follow(ctx, "bob", "alice")
+		assert.ErrorIs(t, err, ErrUserNotFound)
+		_, err = fsvc.Follow(ctx, "str", "bob")
+		require.NoError(t, err)
 
 		require.NoError(t, bsvc.Unblock(ctx, "alice", "bob"))
 		require.NoError(t, bsvc.Unblock(ctx, "alice", "bob"))
-		require.NoError(t, fsvc.Follow(ctx, "bob", "alice"))
+		_, err = fsvc.Follow(ctx, "bob", "alice")
+		require.NoError(t, err)
 	})
 
 	t.Run("self and unknown", func(t *testing.T) {

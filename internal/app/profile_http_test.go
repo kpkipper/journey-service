@@ -19,11 +19,13 @@ func TestHTTP_Follow(t *testing.T) {
 	e := newEnv(t)
 	alice := e.named(t, "alice@gmail.com", "alice")
 	bob := e.named(t, "bob@gmail.com", "bob")
+	status, _, raw := e.do(t, "PATCH", api+"/me", alice, `{"follow_approval":false}`)
+	require.Equal(t, 200, status, raw) // instant follows, as before requests existed
 
 	for i := 0; i < 2; i++ { // idempotent
 		status, body, raw := e.do(t, "POST", api+"/users/alice/follow", bob, "")
 		require.Equal(t, 200, status, raw)
-		assert.Equal(t, map[string]any{"is_following": true, "followers": 1.0}, body["data"])
+		assert.Equal(t, map[string]any{"is_following": true, "requested": false, "followers": 1.0}, body["data"])
 	}
 	p, _ := e.profile(t, bob, "alice")
 	assert.Equal(t, 1.0, p["followers"])
@@ -47,7 +49,7 @@ func TestHTTP_Follow(t *testing.T) {
 	for i := 0; i < 2; i++ { // idempotent
 		status, body, raw = e.do(t, "DELETE", api+"/users/alice/follow", bob, "")
 		require.Equal(t, 200, status, raw)
-		assert.Equal(t, map[string]any{"is_following": false, "followers": 0.0}, body["data"])
+		assert.Equal(t, map[string]any{"is_following": false, "requested": false, "followers": 0.0}, body["data"])
 	}
 	p, _ = e.profile(t, bob, "alice")
 	assert.Equal(t, 0.0, p["followers"])

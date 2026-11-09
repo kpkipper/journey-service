@@ -69,7 +69,7 @@ func New(d Deps) *fiber.App {
 		WebURL:   strings.TrimRight(d.WebURL, "/"),
 		Now:      d.Now,
 	})
-	userSvc := services.NewUserService(userRepo).WithBlocks(blockRepo)
+	userSvc := services.NewUserService(userRepo).WithBlocks(blockRepo).WithFollows(followRepo)
 	followSvc := services.NewFollowService(userRepo, followRepo).WithBlocks(blockRepo)
 	profileSvc := services.NewProfileService(services.ProfileDeps{
 		Users: userRepo, Journeys: journeyRepo, Members: memberRepo, Follows: followRepo, Blocks: blockRepo, Privacy: privacySvc,

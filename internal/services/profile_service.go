@@ -15,16 +15,18 @@ import (
 // ProfileView is a user's profile page as one viewer may see it. Every trip in
 // it is the viewer's JourneyView, so the privacy rules (and redaction) apply.
 type ProfileView struct {
-	User        models.PublicProfile `json:"user"`
-	Followers   int64                `json:"followers"`
-	Following   int64                `json:"following"`
-	IsBlocked   bool                 `json:"is_blocked"`   // the viewer blocked this user
-	IsFollowing bool                 `json:"is_following"` // the viewer follows this user
-	Now         *JourneyView         `json:"now"`          // a trip the viewer sees live; nil otherwise
-	Upcoming    []JourneyView        `json:"upcoming"`
-	Calendar    []CalendarItem       `json:"calendar"`
-	Past        []JourneyView        `json:"past"`
-	Stats       ProfileStats         `json:"stats"`
+	User            models.PublicProfile `json:"user"`
+	Followers       int64                `json:"followers"`
+	Following       int64                `json:"following"`
+	IsBlocked       bool                 `json:"is_blocked"`       // the viewer blocked this user
+	IsFollowing     bool                 `json:"is_following"`     // the viewer follows this user
+	FollowRequested bool                 `json:"follow_requested"` // the viewer has a pending request to follow this user
+	FollowApproval  bool                 `json:"follow_approval"`  // this user approves new followers
+	Now             *JourneyView         `json:"now"`              // a trip the viewer sees live; nil otherwise
+	Upcoming        []JourneyView        `json:"upcoming"`
+	Calendar        []CalendarItem       `json:"calendar"`
+	Past            []JourneyView        `json:"past"`
+	Stats           ProfileStats         `json:"stats"`
 }
 
 // CalendarItem is one trip on the travel calendar. Dates, months and companions
@@ -112,8 +114,12 @@ func (s *ProfileService) Get(ctx context.Context, viewerID, username string) (*P
 			return p, nil
 		}
 	}
+	p.FollowApproval = u.FollowApproval
 	if viewerID != "" && viewerID != u.ID {
 		if p.IsFollowing, err = s.Follows.IsFollowing(ctx, viewerID, u.ID); err != nil {
+			return nil, err
+		}
+		if p.FollowRequested, err = s.Follows.HasRequest(ctx, viewerID, u.ID); err != nil {
 			return nil, err
 		}
 	}

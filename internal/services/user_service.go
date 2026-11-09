@@ -38,8 +38,9 @@ var (
 )
 
 type UserService struct {
-	repo   repository.UserRepository
-	blocks repository.BlockRepository // optional
+	repo    repository.UserRepository
+	blocks  repository.BlockRepository  // optional
+	follows repository.FollowRepository // optional
 }
 
 func NewUserService(repo repository.UserRepository) *UserService {
@@ -49,6 +50,12 @@ func NewUserService(repo repository.UserRepository) *UserService {
 // WithBlocks lets PublicProfileFor hide users from those who blocked them.
 func (s *UserService) WithBlocks(b repository.BlockRepository) *UserService {
 	s.blocks = b
+	return s
+}
+
+// WithFollows lets UpdateProfile accept pending requests when approval is turned off.
+func (s *UserService) WithFollows(f repository.FollowRepository) *UserService {
+	s.follows = f
 	return s
 }
 
@@ -147,6 +154,24 @@ func (s *UserService) UpdateProfile(ctx context.Context, userID string, in model
 
 	if err := s.repo.Update(ctx, u); err != nil {
 		return nil, err
+	}
+	if in.FollowApproval != nil {
+		on := *in.FollowApproval
+		if err := s.repo.SetFollowApproval(ctx, u.ID, on); err != nil {
+			return nil, err
+		}
+		if u.FollowApproval && !on && s.follows != nil {
+			var skip map[string]bool
+			if s.blocks != nil {
+				if skip, err = s.blocks.RelatedIDs(ctx, u.ID); err != nil {
+					return nil, err
+				}
+			}
+			if err := s.follows.AcceptAllRequests(ctx, u.ID, skip); err != nil {
+				return nil, err
+			}
+		}
+		u.FollowApproval = on
 	}
 	return u, nil
 }
