@@ -211,3 +211,35 @@ func TestBlock_PendingInvites(t *testing.T) {
 		}
 	}
 }
+
+// A blocker must not leak to the blocked user through a third party's trip.
+func TestBlock_ThirdPartyTripHidesBlockRelatedMembers(t *testing.T) {
+	for _, dir := range []string{"alice blocks bob", "bob blocks alice"} {
+		t.Run(dir, func(t *testing.T) {
+			e := newEnv(t)
+			alice := e.named(t, "alice@gmail.com", "alice") // joined member of carol's trip
+			bob := e.named(t, "bob@gmail.com", "bob")       // block-related to alice
+			carol := e.named(t, "carol@gmail.com", "carol") // owner
+			slug := e.trip(t, carol, "Past", "public", pastDates)
+			e.inviteAndAccept(t, carol, alice, slug, "alice", "traveler")
+			if dir == "alice blocks bob" {
+				e.block(t, alice, bob)
+			} else {
+				e.block(t, bob, alice)
+			}
+
+			status, _, raw := e.do(t, "GET", api+"/journeys/"+slug, bob, "")
+			require.Equal(t, 200, status, raw)
+			assert.NotContains(t, raw, "alice")
+			_, praw := e.profile(t, bob, "carol")
+			assert.Contains(t, praw, slug)
+			assert.NotContains(t, praw, "alice")
+
+			// carol (not block-related) still sees alice, on the trip and in her own profile.
+			_, _, raw = e.do(t, "GET", api+"/journeys/"+slug, carol, "")
+			assert.Contains(t, raw, "alice")
+			_, praw = e.profile(t, carol, "carol")
+			assert.Contains(t, praw, "alice")
+		})
+	}
+}

@@ -499,6 +499,13 @@ func (s *MemberService) JoinByLink(ctx context.Context, userID, token string) (s
 			return "", ErrInviteNotFound
 		}
 	}
+	if link.CreatedBy != j.OwnerID && s.Blocks != nil {
+		if blocked, err := s.Blocks.Blocked(ctx, userID, link.CreatedBy); err != nil {
+			return "", err
+		} else if blocked {
+			return "", ErrInviteNotFound
+		}
+	}
 	// The link only works while its creator could still hand out invites.
 	if link.CreatedBy != j.OwnerID {
 		ca, err := s.Access.Load(ctx, j.Slug, link.CreatedBy)

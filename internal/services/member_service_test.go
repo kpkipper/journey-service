@@ -441,3 +441,26 @@ func (e *memberEnv) joinedMembers(ctx context.Context, slug string) ([]models.Me
 	}
 	return out, nil
 }
+
+func TestJoinByLink_CreatorBlockedWithClicker(t *testing.T) {
+	e := newMemberEnv(t)
+	ctx := context.Background()
+	for _, u := range []string{"alice", "bob", "edtr"} {
+		e.user(u)
+	}
+	blocks := repository.NewBlockRepository(e.db)
+	e.svc.Blocks = blocks
+	j := e.journey("alice", true)
+	e.member(j, "edtr", models.RoleEditor, models.StatusJoined)
+	url, _, err := e.svc.CreateInviteLink(ctx, "edtr", j.Slug, models.RoleTraveler)
+	require.NoError(t, err)
+	token := url[len("http://web.test/join/"):]
+
+	require.NoError(t, blocks.Block(ctx, "bob", "edtr"))
+	_, err = e.svc.JoinByLink(ctx, "bob", token)
+	assert.ErrorIs(t, err, ErrInviteNotFound)
+	require.NoError(t, blocks.Unblock(ctx, "bob", "edtr"))
+	require.NoError(t, blocks.Block(ctx, "edtr", "bob"))
+	_, err = e.svc.JoinByLink(ctx, "bob", token)
+	assert.ErrorIs(t, err, ErrInviteNotFound)
+}

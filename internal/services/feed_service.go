@@ -279,10 +279,11 @@ func (s *FeedService) tripEvents(t feedTrip, now time.Time, blocked map[string]b
 	}
 	loc := tripstatus.Location(j.Timezone)
 	out := []FeedItem{mk(FeedTripPlanned, j.CreatedAt)}
-	if started := atMidnight(j.DepartureDate, 0, loc); !started.After(now) && !(j.HideLiveStatus && v.Role == "") {
+	dated := !j.DepartureDate.IsZero() && !j.ReturnDate.IsZero()
+	if started := atMidnight(j.DepartureDate, 0, loc); dated && !started.After(now) && !(j.HideLiveStatus && v.Role == "") {
 		out = append(out, mk(FeedTripStarted, started))
 	}
-	if done := atMidnight(j.ReturnDate, 1, loc); !done.After(now) {
+	if done := atMidnight(j.ReturnDate, 1, loc); dated && !done.After(now) {
 		out = append(out, mk(FeedTripCompleted, done))
 	}
 	return out

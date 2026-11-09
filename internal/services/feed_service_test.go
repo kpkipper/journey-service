@@ -37,7 +37,7 @@ func newFeedFixture(t *testing.T) *feedFixture {
 	f.blocks = repository.NewBlockRepository(db)
 	moments := repository.NewMomentRepository(db)
 	now := func() time.Time { return f.now }
-	access := NewAccessService(journeys, members).WithFollows(follows)
+	access := NewAccessService(journeys, members).WithFollows(follows).WithBlocks(f.blocks)
 	privacy := NewPrivacyService(PrivacyDeps{Access: access, Follows: follows, Members: members, Users: users, Now: now})
 	msvc := NewMomentService(MomentDeps{Access: access, Privacy: privacy, Moments: moments,
 		Itinerary: repository.NewItineraryRepository(db), Users: users, Blocks: f.blocks, Store: f.store, Now: now})
@@ -362,4 +362,12 @@ func TestNow_ListsFollowedTravelers(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Equal(t, "a", got[0].User.Username)
+}
+
+func TestFeed_DatelessTripHasNoStartedOrCompleted(t *testing.T) {
+	f := newFeedFixture(t)
+	f.follow("me", "a")
+	f.trip(fTrip{owner: "a"}) // zero departure/return dates
+	items := f.feed("me")
+	assert.Equal(t, []string{"trip_planned"}, typesOf(items))
 }

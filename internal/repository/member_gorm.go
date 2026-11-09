@@ -66,7 +66,7 @@ func (r *memberGorm) ListByJourney(ctx context.Context, journeyID string) ([]mod
 	var out []models.MemberView
 	err := r.db.WithContext(ctx).
 		Table("journey_members").
-		Select("users.username AS username, users.display_name AS display_name, users.avatar_url AS avatar_url, journey_members.role AS role, journey_members.status AS status").
+		Select("users.id AS user_id, users.username AS username, users.display_name AS display_name, users.avatar_url AS avatar_url, journey_members.role AS role, journey_members.status AS status").
 		Joins("JOIN users ON users.id = journey_members.user_id").
 		Where("journey_members.journey_id = ?", journeyID).
 		Order("CASE WHEN journey_members.status = 'joined' THEN 0 ELSE 1 END").

@@ -53,6 +53,7 @@ func (l *InviteLink) BeforeCreate(tx *gorm.DB) error {
 
 // MemberView is the member row exposed by the API.
 type MemberView struct {
+	UserID      string `json:"-"`
 	Username    string `json:"username"`
 	DisplayName string `json:"display_name"`
 	AvatarURL   string `json:"avatar_url"`

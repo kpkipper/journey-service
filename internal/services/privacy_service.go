@@ -226,6 +226,20 @@ func (s *PrivacyService) view(ctx context.Context, viewerID string, a *Access) (
 	if err != nil {
 		return nil, false, err
 	}
+	if a.Role == "" && s.Access.blocks != nil && viewerID != "" {
+		// A non-member must not learn that a block exists through a third party's trip.
+		related, err := s.Access.blocks.RelatedIDs(ctx, viewerID)
+		if err != nil {
+			return nil, false, err
+		}
+		kept := members[:0:0]
+		for _, m := range members {
+			if !related[m.UserID] {
+				kept = append(kept, m)
+			}
+		}
+		members = kept
+	}
 	v.Members = members
 
 	if status.State == "ongoing" && (rel == RelMember || (rel == RelFollower && !j.HideLiveStatus)) {
@@ -254,7 +268,7 @@ func (s *PrivacyService) ownerProfile(ctx context.Context, j *models.Journey) (o
 	return ownerInfo{
 		profile: &models.PublicProfile{Username: u.Username, DisplayName: u.DisplayName, AvatarURL: u.AvatarURL, Bio: u.Bio},
 		member: &models.MemberView{
-			Username: u.Username, DisplayName: u.DisplayName, AvatarURL: u.AvatarURL,
+			UserID: u.ID, Username: u.Username, DisplayName: u.DisplayName, AvatarURL: u.AvatarURL,
 			Role: models.RoleOwner, Status: models.StatusJoined,
 		},
 	}, nil
