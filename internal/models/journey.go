@@ -36,6 +36,7 @@ type Journey struct {
 	ReturnDate       time.Time      `gorm:"not null" json:"return_date"`
 	CoverURL         string         `json:"cover_url"`
 	EditorsCanInvite bool           `gorm:"not null;default:false" json:"editors_can_invite"`
+	MembersCanPost   bool           `gorm:"not null;default:true" json:"members_can_post"`
 	Visibility       string         `gorm:"type:varchar(10);not null;default:'followers'" json:"visibility"`
 	IsDraft          bool           `gorm:"not null;default:false" json:"is_draft"`
 	Timezone         string         `gorm:"type:varchar(64);not null;default:'Asia/Bangkok'" json:"timezone"`

@@ -94,6 +94,16 @@ func TestPatchJourney(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, got.EditorsCanInvite)
 
+	assert.True(t, got.MembersCanPost, "new trips default to members_can_post")
+	_, err = e.svc.PatchJourney(e.ctx, "edtr", j.Slug, JourneyPatch{MembersCanPost: bp(false)})
+	assert.ErrorIs(t, err, ErrForbidden)
+	got, err = e.svc.PatchJourney(e.ctx, "alice", j.Slug, JourneyPatch{MembersCanPost: bp(false)})
+	require.NoError(t, err)
+	assert.False(t, got.MembersCanPost)
+	reread, err := e.svc.PatchJourney(e.ctx, "alice", j.Slug, JourneyPatch{Title: sp("New title")})
+	require.NoError(t, err)
+	assert.False(t, reread.MembersCanPost, "false persists across later patches")
+
 	_, err = e.svc.PatchJourney(e.ctx, "trav", j.Slug, JourneyPatch{Title: sp("x")})
 	assert.ErrorIs(t, err, ErrForbidden, "trav")
 	// Non-members cannot see a followers trip, so it does not exist for them.

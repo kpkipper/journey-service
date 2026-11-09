@@ -506,7 +506,7 @@ func TestPrivacyViewSettings(t *testing.T) {
 	ctx := context.Background()
 	j := f.newTrip(t, tripOpts{owner: "owner", visibility: models.VisibilityPublic, dep: ongoingDates[0], ret: ongoingDates[1], hideLive: true, draft: true})
 	require.NoError(t, f.db.Model(&models.Journey{}).Where("id = ?", j.ID).Update("editors_can_invite", true).Error)
-	want := &TripSettings{IsDraft: true, Timezone: "Asia/Bangkok", HideLiveStatus: true, EditorsCanInvite: true}
+	want := &TripSettings{IsDraft: true, Timezone: "Asia/Bangkok", HideLiveStatus: true, EditorsCanInvite: true, MembersCanPost: true}
 
 	for _, viewer := range []string{"owner", "edtr", "trav"} {
 		v, err := f.svc.View(ctx, viewer, j.Slug)
@@ -514,7 +514,7 @@ func TestPrivacyViewSettings(t *testing.T) {
 		assert.Equal(t, want, v.Settings, viewer)
 		raw, err := json.Marshal(v)
 		require.NoError(t, err)
-		assert.Contains(t, string(raw), `"settings":{"is_draft":true,"timezone":"Asia/Bangkok","hide_live_status":true,"editors_can_invite":true}`)
+		assert.Contains(t, string(raw), `"settings":{"is_draft":true,"timezone":"Asia/Bangkok","hide_live_status":true,"editors_can_invite":true,"members_can_post":true}`)
 	}
 
 	check := func(name, viewer string, redacted bool) {

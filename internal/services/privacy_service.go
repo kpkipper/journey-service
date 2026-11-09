@@ -48,6 +48,7 @@ type TripSettings struct {
 	Timezone         string `json:"timezone"`
 	HideLiveStatus   bool   `json:"hide_live_status"`
 	EditorsCanInvite bool   `json:"editors_can_invite"`
+	MembersCanPost   bool   `json:"members_can_post"`
 }
 
 // LiveView is "on the trip right now" info. TodayPlans is filled for members only.
@@ -204,7 +205,7 @@ func (s *PrivacyService) view(ctx context.Context, viewerID string, a *Access) (
 	v.MonthStart, v.MonthEnd = start.Format("2006-01"), end.Format("2006-01")
 	v.Status = status
 	if a.Role != "" {
-		v.Settings = &TripSettings{IsDraft: j.IsDraft, Timezone: j.Timezone, HideLiveStatus: j.HideLiveStatus, EditorsCanInvite: j.EditorsCanInvite}
+		v.Settings = &TripSettings{IsDraft: j.IsDraft, Timezone: j.Timezone, HideLiveStatus: j.HideLiveStatus, EditorsCanInvite: j.EditorsCanInvite, MembersCanPost: j.MembersCanPost}
 	}
 	if rel == RelFollower && j.HideLiveStatus && status.State == "ongoing" {
 		// The owner hid live status: followers keep the dates but not "day X of Y".

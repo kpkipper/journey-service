@@ -23,6 +23,7 @@ type JourneyPatch struct {
 	DepartureDate    *time.Time `json:"departure_date"`
 	ReturnDate       *time.Time `json:"return_date"`
 	EditorsCanInvite *bool      `json:"editors_can_invite"`
+	MembersCanPost   *bool      `json:"members_can_post"`
 	Visibility       *string    `json:"visibility"`
 	IsDraft          *bool      `json:"is_draft"`
 	Timezone         *string    `json:"timezone"`
@@ -74,7 +75,7 @@ func (s *ItineraryService) PatchJourney(ctx context.Context, userID, slug string
 		return nil, err
 	}
 	j := a.Journey
-	if (p.EditorsCanInvite != nil || p.Visibility != nil || p.HideLiveStatus != nil) && !a.IsOwner() {
+	if (p.EditorsCanInvite != nil || p.MembersCanPost != nil || p.Visibility != nil || p.HideLiveStatus != nil) && !a.IsOwner() {
 		return nil, ErrForbidden
 	}
 
@@ -114,6 +115,9 @@ func (s *ItineraryService) PatchJourney(ctx context.Context, userID, slug string
 	}
 	if p.EditorsCanInvite != nil {
 		fields["editors_can_invite"] = *p.EditorsCanInvite
+	}
+	if p.MembersCanPost != nil {
+		fields["members_can_post"] = *p.MembersCanPost
 	}
 	if p.Visibility != nil {
 		if !validVisibility(*p.Visibility) {
