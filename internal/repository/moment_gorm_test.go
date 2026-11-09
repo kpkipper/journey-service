@@ -79,6 +79,9 @@ func TestMomentRepository_ListsAndCounts(t *testing.T) {
 	a := mk(t, repo, models.Moment{JourneyID: "j1", DayID: "d1", PlanID: "p1", UploaderID: "u1", Status: models.MomentReady}, t0)
 	b := mk(t, repo, models.Moment{JourneyID: "j1", DayID: "d1", PlanID: "p1", UploaderID: "u2", Status: models.MomentReady}, t0.Add(time.Hour))
 	p := mk(t, repo, models.Moment{JourneyID: "j1", DayID: "d2", UploaderID: "u1", Status: models.MomentPending}, t0.Add(2*time.Hour))
+	rej := mk(t, repo, models.Moment{JourneyID: "j1", DayID: "d1", UploaderID: "u1", Status: models.MomentPending}, t0.Add(30*time.Minute))
+	require.NoError(t, repo.MarkRejected(ctx, rej.ID))
+	assert.ErrorIs(t, repo.MarkRejected(ctx, rej.ID), gorm.ErrRecordNotFound)
 	o := mk(t, repo, models.Moment{JourneyID: "j2", DayID: "d9", UploaderID: "u1", Status: models.MomentReady}, t0.Add(3*time.Hour))
 
 	ready, err := repo.ListReadyByJourney(ctx, "j1")
@@ -88,7 +91,7 @@ func TestMomentRepository_ListsAndCounts(t *testing.T) {
 
 	all, err := repo.ListByJourney(ctx, "j1")
 	require.NoError(t, err)
-	assert.Len(t, all, 3)
+	assert.Len(t, all, 4)
 
 	up, err := repo.ListByUploader(ctx, "u1")
 	require.NoError(t, err)
@@ -108,7 +111,13 @@ func TestMomentRepository_ListsAndCounts(t *testing.T) {
 	n, _ = repo.CountStartedSince(ctx, "u1", t0.Add(time.Hour))
 	assert.Equal(t, int64(2), n)
 	n, _ = repo.CountStartedSince(ctx, "u1", t0)
-	assert.Equal(t, int64(3), n)
+	assert.Equal(t, int64(4), n, "rejected still counts as a start")
+
+	del, err := repo.DeleteRejectedBefore(ctx, t0.Add(time.Hour))
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), del)
+	got0, _ := repo.Get(ctx, rej.ID)
+	assert.Nil(t, got0)
 
 	stale, err := repo.ListPendingBefore(ctx, t0.Add(3*time.Hour))
 	require.NoError(t, err)

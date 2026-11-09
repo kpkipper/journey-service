@@ -355,8 +355,11 @@ func TestComplete_RejectsDisguisedFile(t *testing.T) {
 	require.ErrorAs(t, err, &ve)
 	assert.Equal(t, media.ErrUnsupportedFormat.Error(), ve.Message)
 	row, _ := e.repo.Get(context.Background(), id)
-	assert.Nil(t, row)
+	require.NotNil(t, row)
+	assert.Equal(t, models.MomentRejected, row.Status)
 	assert.Empty(t, e.store.Keys())
+	_, err = e.svc.Complete(context.Background(), "alice", j.Slug, id)
+	assert.ErrorIs(t, err, ErrMomentNotFound)
 }
 
 func TestComplete_RejectsOversizeActualFile(t *testing.T) {
@@ -372,8 +375,11 @@ func TestComplete_RejectsOversizeActualFile(t *testing.T) {
 	require.ErrorAs(t, err, &ve)
 	assert.Equal(t, "file too large", ve.Message)
 	row, _ := e.repo.Get(context.Background(), id)
-	assert.Nil(t, row)
+	require.NotNil(t, row)
+	assert.Equal(t, models.MomentRejected, row.Status)
 	assert.Empty(t, e.store.Keys())
+	_, err = e.svc.Complete(context.Background(), "alice", j.Slug, id)
+	assert.ErrorIs(t, err, ErrMomentNotFound)
 }
 
 func TestComplete_OtherUserCannotComplete(t *testing.T) {
@@ -477,7 +483,8 @@ func TestComplete_VideoRejectedByProcessorUsesSentinelMessage(t *testing.T) {
 	assert.Equal(t, media.ErrVideoTooLong.Error(), ve.Message)
 	assert.Empty(t, e.store.Keys())
 	row, _ := e.repo.Get(context.Background(), id)
-	assert.Nil(t, row)
+	require.NotNil(t, row)
+	assert.Equal(t, models.MomentRejected, row.Status)
 }
 
 func TestComplete_VideoUnavailableKeepsRow(t *testing.T) {
@@ -496,4 +503,33 @@ func TestComplete_VideoUnavailableKeepsRow(t *testing.T) {
 	row, _ := e.repo.Get(context.Background(), id)
 	assert.NotNil(t, row)
 	assert.Contains(t, e.store.Keys(), storage.RawKey(j.ID, id))
+}
+
+func TestComplete_RejectedStillCountsTowardRateLimit(t *testing.T) {
+	e := newMomentEnv(t)
+	e.user("alice")
+	j := e.journey("alice", true, "")
+	d := e.day(j)
+	e.seed(j, d, "alice", models.MomentRejected, 100, e.now.Add(-time.Minute))
+	_, err := e.svc.StartUpload(context.Background(), "alice", j.Slug, photoIn(d.ID))
+	assert.ErrorIs(t, err, ErrTooManyRequests)
+}
+
+func TestComplete_RecheckPostingRight(t *testing.T) {
+	e := newMomentEnv(t)
+	e.user("alice")
+	e.user("bob")
+	j := e.journey("alice", true, "")
+	e.member(j, "bob", models.RoleTraveler)
+	d := e.day(j)
+	id := e.start("bob", j, photoIn(d.ID))
+	e.store.PutRaw(storage.RawKey(j.ID, id), jpegWithExif(t))
+	require.NoError(t, e.db.Model(&models.Journey{}).Where("id = ?", j.ID).Update("members_can_post", false).Error)
+
+	_, err := e.svc.Complete(context.Background(), "bob", j.Slug, id)
+	assert.ErrorIs(t, err, ErrForbidden)
+	row, _ := e.repo.Get(context.Background(), id)
+	require.NotNil(t, row)
+	assert.Equal(t, models.MomentPending, row.Status)
+	assert.Equal(t, []string{storage.RawKey(j.ID, id)}, e.store.Keys())
 }

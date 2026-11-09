@@ -54,6 +54,24 @@ func (r *momentGorm) MarkReady(ctx context.Context, m *models.Moment) error {
 	return nil
 }
 
+func (r *momentGorm) MarkRejected(ctx context.Context, id string) error {
+	res := r.db.WithContext(ctx).Model(&models.Moment{}).
+		Where("id = ? AND status = ?", id, models.MomentPending).
+		Update("status", models.MomentRejected)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
+func (r *momentGorm) DeleteRejectedBefore(ctx context.Context, t time.Time) (int64, error) {
+	res := r.db.WithContext(ctx).Where("status = ? AND created_at < ?", models.MomentRejected, t).Delete(&models.Moment{})
+	return res.RowsAffected, res.Error
+}
+
 func (r *momentGorm) UpdateCaption(ctx context.Context, id, caption string) error {
 	return r.db.WithContext(ctx).Model(&models.Moment{}).Where("id = ?", id).Update("caption", caption).Error
 }
@@ -91,11 +109,11 @@ func (r *momentGorm) count(ctx context.Context, where string, args ...any) (int6
 }
 
 func (r *momentGorm) CountByJourney(ctx context.Context, journeyID string) (int64, error) {
-	return r.count(ctx, "journey_id = ?", journeyID)
+	return r.count(ctx, "journey_id = ? AND status <> ?", journeyID, models.MomentRejected)
 }
 
 func (r *momentGorm) CountByDay(ctx context.Context, dayID string) (int64, error) {
-	return r.count(ctx, "day_id = ?", dayID)
+	return r.count(ctx, "day_id = ? AND status <> ?", dayID, models.MomentRejected)
 }
 
 func (r *momentGorm) CountPendingByUploader(ctx context.Context, userID string) (int64, error) {

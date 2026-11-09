@@ -13,6 +13,10 @@ type MomentRepository interface {
 	Get(ctx context.Context, id string) (*models.Moment, error)
 	// MarkReady finalizes a pending moment; gorm.ErrRecordNotFound when it is not pending.
 	MarkReady(ctx context.Context, m *models.Moment) error
+	// MarkRejected moves a pending moment to rejected (pending only; else gorm.ErrRecordNotFound).
+	MarkRejected(ctx context.Context, id string) error
+	// DeleteRejectedBefore hard-deletes rejected rows created before t.
+	DeleteRejectedBefore(ctx context.Context, t time.Time) (int64, error)
 	UpdateCaption(ctx context.Context, id, caption string) error
 	Delete(ctx context.Context, id string) error
 	ListReadyByJourney(ctx context.Context, journeyID string) ([]models.Moment, error)

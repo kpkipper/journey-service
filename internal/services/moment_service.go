@@ -137,16 +137,25 @@ func (s *MomentService) toView(ctx context.Context, m *models.Moment, canDelete 
 	return v, nil
 }
 
+// checkCanPost: owner always; joined editor/traveler only when the trip lets
+// members post; legacy trips nobody. Non-members get Access.Deny.
+func (s *MomentService) checkCanPost(ctx context.Context, a *Access, userID string) error {
+	if !a.IsMember() {
+		return s.Access.Deny(ctx, a, userID)
+	}
+	if a.Journey.OwnerID == "" || (!a.IsOwner() && !a.Journey.MembersCanPost) {
+		return ErrForbidden
+	}
+	return nil
+}
+
 func (s *MomentService) StartUpload(ctx context.Context, userID, slug string, in StartUploadInput) (*UploadStart, error) {
 	a, err := s.Access.Load(ctx, slug, userID)
 	if err != nil {
 		return nil, err
 	}
-	if !a.IsMember() {
-		return nil, s.Access.Deny(ctx, a, userID)
-	}
-	if a.Journey.OwnerID == "" || (!a.IsOwner() && !a.Journey.MembersCanPost) {
-		return nil, ErrForbidden
+	if err := s.checkCanPost(ctx, a, userID); err != nil {
+		return nil, err
 	}
 
 	switch in.Kind {
@@ -226,6 +235,7 @@ func (s *MomentService) StartUpload(ctx context.Context, userID, slug string, in
 	}
 	v, err := s.toView(ctx, m, true)
 	if err != nil {
+		_ = s.Moments.Delete(context.WithoutCancel(ctx), m.ID)
 		return nil, err
 	}
 	return &UploadStart{Moment: v, Upload: target}, nil
@@ -240,10 +250,12 @@ func (s *MomentService) acquire(ctx context.Context, sem chan struct{}) error {
 	}
 }
 
-// reject removes the raw upload and the pending row after the file was refused.
+// reject removes the raw upload and marks the row rejected after the file was refused.
 func (s *MomentService) reject(ctx context.Context, m *models.Moment, msg string) error {
 	_ = s.Store.Delete(ctx, storage.RawKey(m.JourneyID, m.ID))
-	if err := s.Moments.Delete(ctx, m.ID); err != nil {
+	// Keep the row (status rejected) so the attempt still counts toward the
+	// per-user start rate limit.
+	if err := s.Moments.MarkRejected(ctx, m.ID); err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
 	return &ValidationError{Message: msg}
@@ -265,8 +277,8 @@ func (s *MomentService) Complete(ctx context.Context, userID, slug, momentID str
 	if err != nil {
 		return nil, err
 	}
-	if !a.IsMember() {
-		return nil, s.Access.Deny(ctx, a, userID)
+	if err := s.checkCanPost(ctx, a, userID); err != nil {
+		return nil, err
 	}
 	m, err := s.Moments.Get(ctx, momentID)
 	if err != nil {
@@ -358,9 +370,15 @@ func (s *MomentService) Complete(ctx context.Context, userID, slug, momentID str
 
 	fullKey := storage.MomentKey(m.JourneyID, m.ID, fullName)
 	thumbKey := storage.MomentKey(m.JourneyID, m.ID, "thumb.jpg")
+	// cleanup removes the processed objects unless a concurrent Complete has
+	// already made this moment ready (the keys are identical and now in use).
 	cleanup := func() {
-		_ = s.Store.Delete(context.WithoutCancel(ctx), fullKey)
-		_ = s.Store.Delete(context.WithoutCancel(ctx), thumbKey)
+		bg := context.WithoutCancel(ctx)
+		if cur, err := s.Moments.Get(bg, m.ID); err != nil || (cur != nil && cur.Status == models.MomentReady) {
+			return
+		}
+		_ = s.Store.Delete(bg, fullKey)
+		_ = s.Store.Delete(bg, thumbKey)
 	}
 
 	if m.Kind == models.MomentVideo {
@@ -393,12 +411,7 @@ func (s *MomentService) Complete(ctx context.Context, userID, slug, momentID str
 	m.ObjectKey, m.ThumbKey, m.SizeBytes = fullKey, thumbKey, fullSize
 	if err := s.Moments.MarkReady(ctx, m); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			// A concurrent Complete may have won and now owns these identical
-			// keys; only remove them when the row is gone (deleted meanwhile).
-			cur, gerr := s.Moments.Get(context.WithoutCancel(ctx), m.ID)
-			if gerr == nil && cur == nil {
-				cleanup()
-			}
+			cleanup()
 			return nil, ErrMomentNotFound
 		}
 		cleanup()

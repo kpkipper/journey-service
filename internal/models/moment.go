@@ -11,6 +11,9 @@ const (
 	MomentVideo   = "video"
 	MomentPending = "pending"
 	MomentReady   = "ready"
+	// MomentRejected keeps the row of a refused upload so it still counts
+	// towards the per-user start rate limit; it is swept later.
+	MomentRejected = "rejected"
 )
 
 // Moment is a photo or video attached to a trip day (and optionally a plan).
