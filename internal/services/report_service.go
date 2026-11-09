@@ -134,21 +134,11 @@ func (s *ReportService) resolveJourney(ctx context.Context, reporterID, slug str
 }
 
 func (s *ReportService) resolveMoment(ctx context.Context, reporterID, id string) (string, error) {
-	m, err := s.Moments.Moments.Get(ctx, id)
+	slug, err := s.Moments.JourneySlugOf(ctx, id)
 	if err != nil {
 		return "", err
 	}
-	if m == nil {
-		return "", ErrMomentNotFound
-	}
-	j, err := s.Moments.Access.journeys.GetByID(ctx, m.JourneyID)
-	if err != nil {
-		return "", err
-	}
-	if j == nil {
-		return "", ErrMomentNotFound
-	}
-	visible, err := s.Moments.List(ctx, reporterID, j.Slug)
+	visible, err := s.Moments.List(ctx, reporterID, slug)
 	if errors.Is(err, ErrNotFound) {
 		return "", ErrMomentNotFound
 	}
@@ -156,8 +146,8 @@ func (s *ReportService) resolveMoment(ctx context.Context, reporterID, id string
 		return "", err
 	}
 	for i := range visible {
-		if visible[i].ID == m.ID {
-			return m.ID, nil
+		if visible[i].ID == id {
+			return id, nil
 		}
 	}
 	return "", ErrMomentNotFound

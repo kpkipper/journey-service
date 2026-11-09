@@ -70,3 +70,26 @@ func TestDeleteMomentCLI(t *testing.T) {
 	assert.Zero(t, n)
 	assert.ErrorIs(t, admin.DeleteMoment(ctx, svc, m.ID), services.ErrMomentNotFound)
 }
+
+func TestPrintOpenReports_OnlyReportLines(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	ctx := context.Background()
+	for _, n := range []string{"alice", "bob", "cat"} {
+		require.NoError(t, db.Create(&models.User{ID: n, Email: n + "@x.com", Username: n}).Error)
+	}
+	rs := services.NewReportService(services.ReportDeps{
+		Reports: repository.NewReportRepository(db), Users: repository.NewUserRepository(db)})
+	for _, tgt := range []string{"alice", "cat"} {
+		_, _, err := rs.Create(ctx, "bob", services.ReportInput{TargetType: "user", Target: tgt, Reason: "spam"})
+		require.NoError(t, err)
+	}
+	var buf bytes.Buffer
+	require.NoError(t, admin.PrintOpenReports(ctx, &buf, rs))
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	require.Len(t, lines, 2)
+	for _, l := range lines {
+		var r models.Report
+		require.NoError(t, json.Unmarshal([]byte(l), &r))
+		assert.NotEmpty(t, r.ID)
+	}
+}

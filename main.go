@@ -28,7 +28,12 @@ import (
 
 func main() {
 	cfg := config.Get()
-	logger.Init(cfg.App.ENV != "production")
+	// Admin CLI commands keep stdout clean for their own output; logs go to stderr.
+	if len(os.Args) > 1 && isAdminCommand(os.Args[1]) {
+		logger.InitTo(os.Stderr, cfg.App.ENV != "production")
+	} else {
+		logger.Init(cfg.App.ENV != "production")
+	}
 	log := logger.Get()
 
 	isAssignLegacy := len(os.Args) > 1 && os.Args[1] == "assign-legacy-owner"
@@ -75,6 +80,9 @@ func main() {
 		}
 		if err != nil {
 			log.Fatal().Err(err).Msg(os.Args[1] + " failed")
+		}
+		if isResolveReport {
+			log.Info().Str("report", os.Args[2]).Msg("report resolved")
 		}
 		os.Exit(0)
 	}
@@ -178,6 +186,14 @@ func main() {
 }
 
 // startMomentCleanup removes uploads left pending for over an hour, every 30 minutes.
+func isAdminCommand(c string) bool {
+	switch c {
+	case "assign-legacy-owner", "reports", "resolve-report", "delete-moment":
+		return true
+	}
+	return false
+}
+
 func startMomentCleanup(db *gorm.DB, store storage.Store, video media.VideoProcessor) {
 	svc := services.NewMomentService(services.MomentDeps{
 		Access:  services.NewAccessService(repository.NewJourneyRepository(db), repository.NewMemberRepository(db)),

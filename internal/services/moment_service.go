@@ -675,6 +675,26 @@ func (s *MomentService) Delete(ctx context.Context, userID, momentID string) err
 	return nil
 }
 
+// JourneySlugOf returns the slug of the trip a moment belongs to
+// (ErrMomentNotFound when the moment or its trip is missing).
+func (s *MomentService) JourneySlugOf(ctx context.Context, momentID string) (string, error) {
+	m, err := s.Moments.Get(ctx, momentID)
+	if err != nil {
+		return "", err
+	}
+	if m == nil {
+		return "", ErrMomentNotFound
+	}
+	j, err := s.Access.journeys.GetByID(ctx, m.JourneyID)
+	if err != nil {
+		return "", err
+	}
+	if j == nil {
+		return "", ErrMomentNotFound
+	}
+	return j.Slug, nil
+}
+
 // AdminDelete removes a moment and its files without any permission check.
 // It is only for the operator CLI.
 func (s *MomentService) AdminDelete(ctx context.Context, momentID string) error {
