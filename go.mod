@@ -3,6 +3,7 @@ module github.com/kpkipper/journey-service
 go 1.24.1
 
 require (
+	github.com/disintegration/imaging v1.6.2
 	github.com/glebarez/sqlite v1.11.0
 	github.com/gofiber/fiber/v2 v2.52.12
 	github.com/joho/godotenv v1.5.1
@@ -10,6 +11,7 @@ require (
 	github.com/matoous/go-nanoid/v2 v2.1.0
 	github.com/rs/zerolog v1.35.0
 	github.com/stretchr/testify v1.11.1
+	golang.org/x/image v0.30.0
 	google.golang.org/api v0.267.0
 	gorm.io/driver/postgres v1.6.0
 	gorm.io/gorm v1.31.1
