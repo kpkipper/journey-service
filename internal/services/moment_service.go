@@ -392,10 +392,16 @@ func (s *MomentService) Complete(ctx context.Context, userID, slug, momentID str
 	m.Width, m.Height, m.DurationMs = width, height, durationMs
 	m.ObjectKey, m.ThumbKey, m.SizeBytes = fullKey, thumbKey, fullSize
 	if err := s.Moments.MarkReady(ctx, m); err != nil {
-		cleanup()
 		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// A concurrent Complete may have won and now owns these identical
+			// keys; only remove them when the row is gone (deleted meanwhile).
+			cur, gerr := s.Moments.Get(context.WithoutCancel(ctx), m.ID)
+			if gerr == nil && cur == nil {
+				cleanup()
+			}
 			return nil, ErrMomentNotFound
 		}
+		cleanup()
 		return nil, err
 	}
 	m.Status = models.MomentReady
