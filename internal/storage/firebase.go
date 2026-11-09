@@ -46,7 +46,7 @@ func NewFirebaseStore(ctx context.Context, bucket string, credentialsJSON []byte
 	if sa.ClientEmail == "" || sa.PrivateKey == "" {
 		return nil, errors.New("storage: credentials need client_email and private_key")
 	}
-	client, err := gcs.NewClient(ctx, option.WithCredentialsJSON(raw))
+	client, err := gcs.NewClient(ctx, option.WithAuthCredentialsJSON(option.ServiceAccount, raw))
 	if err != nil {
 		return nil, fmt.Errorf("storage: new client: %w", err)
 	}
@@ -115,9 +115,18 @@ func (s *FirebaseStore) Open(ctx context.Context, key string) (io.ReadCloser, in
 }
 
 func (s *FirebaseStore) Put(ctx context.Context, key, contentType string, r io.Reader) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	w := s.client.Bucket(s.bucket).Object(key).NewWriter(ctx)
 	w.ContentType = contentType
+	return copyOrAbort(w, cancel, r)
+}
+
+// copyOrAbort copies r into w. On a copy error it cancels the write context
+// first so Close discards the partial object instead of finalizing it.
+func copyOrAbort(w io.WriteCloser, cancel context.CancelFunc, r io.Reader) error {
 	if _, err := io.Copy(w, r); err != nil {
+		cancel()
 		_ = w.Close()
 		return err
 	}

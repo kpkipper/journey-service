@@ -68,7 +68,7 @@ func (s *LocalStore) signedURL(method, key string, ttl time.Duration, max int64,
 }
 
 func (s *LocalStore) SignedPut(_ context.Context, key, contentType string, maxBytes int64, ttl time.Duration) (*UploadTarget, error) {
-	if !validKey(key) {
+	if !validKey(key) || !strings.HasPrefix(key, "uploads/") {
 		return nil, ErrInvalidKey
 	}
 	u, exp := s.signedURL("PUT", key, ttl, maxBytes, contentType)
@@ -76,7 +76,7 @@ func (s *LocalStore) SignedPut(_ context.Context, key, contentType string, maxBy
 }
 
 func (s *LocalStore) SignedGet(_ context.Context, key string, ttl time.Duration) (string, error) {
-	if !validKey(key) {
+	if !validKey(key) || !strings.HasPrefix(key, "moments/") {
 		return "", ErrInvalidKey
 	}
 	u, _ := s.signedURL("GET", key, ttl, 0, "")
@@ -184,23 +184,14 @@ func (s *LocalStore) handleGet(c *fiber.Ctx) error {
 		return fiber.ErrForbidden
 	}
 	p, _ := s.file(key)
-	b, err := os.ReadFile(p)
-	if errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(p); errors.Is(err, os.ErrNotExist) {
 		return fiber.ErrNotFound
-	}
-	if err != nil {
+	} else if err != nil {
 		return err
 	}
-	ct := "application/octet-stream"
-	switch path.Ext(key) {
-	case ".jpg":
-		ct = "image/jpeg"
-	case ".mp4":
-		ct = "video/mp4"
-	}
-	c.Set(fiber.HeaderContentType, ct)
 	c.Set(fiber.HeaderCacheControl, "private, max-age=3600")
-	return c.Send(b)
+	// SendFile supports Range requests (needed for <video>).
+	return c.SendFile(p)
 }
 
 func (s *LocalStore) handlePut(c *fiber.Ctx) error {

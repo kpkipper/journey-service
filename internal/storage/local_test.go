@@ -173,13 +173,13 @@ func TestLocal_RejectsTraversalKey(t *testing.T) {
 }
 
 func TestLocal_CannotPutToMomentsPrefix(t *testing.T) {
-	ctx := context.Background()
 	s, app, dir := newLocal(t)
-	tgt, err := s.SignedPut(ctx, "moments/j1/m1/full.jpg", "image/jpeg", 10, time.Minute)
-	require.NoError(t, err)
-	resp := do(t, app, "PUT", toPath(t, tgt.URL), "image/jpeg", []byte("x"))
-	require.Equal(t, 403, resp.StatusCode)
-	_, err = os.Stat(filepath.Join(dir, "moments/j1/m1/full.jpg"))
+	// Signed directly: the handler must refuse even a valid signature.
+	exp := time.Now().Add(time.Minute).Unix()
+	sig := s.sign("PUT", "moments/j1/m1/full.jpg", exp, 10, "image/jpeg")
+	path := "/api/v1/media/local/moments/j1/m1/full.jpg?exp=" + strconv.FormatInt(exp, 10) + "&max=10&sig=" + sig
+	require.Equal(t, 403, do(t, app, "PUT", path, "image/jpeg", []byte("x")).StatusCode)
+	_, err := os.Stat(filepath.Join(dir, "moments/j1/m1/full.jpg"))
 	require.True(t, os.IsNotExist(err))
 }
 
@@ -187,10 +187,38 @@ func TestLocal_GetOfRawKeyIsRefused(t *testing.T) {
 	ctx := context.Background()
 	s, app, _ := newLocal(t)
 	require.NoError(t, s.Put(ctx, "uploads/j1/m1", "image/jpeg", strings.NewReader("secret-raw")))
-	g, err := s.SignedGet(ctx, "uploads/j1/m1", time.Hour) // validly signed
+	// The public API refuses to sign it...
+	_, err := s.SignedGet(ctx, "uploads/j1/m1", time.Hour)
+	require.ErrorIs(t, err, ErrInvalidKey)
+	// ...and the handler refuses even a validly-signed URL.
+	exp := time.Now().Add(time.Hour).Unix()
+	sig := s.sign("GET", "uploads/j1/m1", exp, 0, "")
+	path := "/api/v1/media/local/uploads/j1/m1?exp=" + strconv.FormatInt(exp, 10) + "&max=0&sig=" + sig
+	require.Equal(t, 403, do(t, app, "GET", path, "", nil).StatusCode)
+}
+
+func TestLocal_SignedKeyPrefixes(t *testing.T) {
+	ctx := context.Background()
+	s, _, _ := newLocal(t)
+	_, err := s.SignedPut(ctx, "moments/j1/m1/full.jpg", "image/jpeg", 1, time.Minute)
+	require.ErrorIs(t, err, ErrInvalidKey)
+}
+
+func TestLocal_GetSupportsRange(t *testing.T) {
+	ctx := context.Background()
+	s, app, _ := newLocal(t)
+	require.NoError(t, s.Put(ctx, "moments/j1/m1/video.mp4", "video/mp4", strings.NewReader("0123456789")))
+	g, _ := s.SignedGet(ctx, "moments/j1/m1/video.mp4", time.Hour)
+	req := httptest.NewRequest("GET", toPath(t, g), nil)
+	req.Header.Set("Range", "bytes=0-3")
+	resp, err := app.Test(req, -1)
 	require.NoError(t, err)
-	resp := do(t, app, "GET", toPath(t, g), "", nil)
-	require.Equal(t, 403, resp.StatusCode)
+	require.Equal(t, 206, resp.StatusCode)
+	buf := new(bytes.Buffer)
+	_, _ = buf.ReadFrom(resp.Body)
+	require.Equal(t, "0123", buf.String())
+	require.Equal(t, "video/mp4", resp.Header.Get("Content-Type"))
+	require.Equal(t, "private, max-age=3600", resp.Header.Get("Cache-Control"))
 }
 
 func TestLocal_GetMissingIs404(t *testing.T) {

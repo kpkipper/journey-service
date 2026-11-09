@@ -8,6 +8,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
+	"io"
 	"net/url"
 	"strings"
 	"testing"
@@ -89,4 +91,35 @@ func TestNewFirebaseStore_AcceptsBase64(t *testing.T) {
 		require.Contains(t, []string{"3599", "3600"}, gu.Query().Get("X-Goog-Expires"))
 		require.NotEmpty(t, gu.Query().Get("X-Goog-Signature"))
 	}
+}
+
+type fakeWriter struct {
+	cancelledAtClose bool
+	ctx              context.Context
+}
+
+func (w *fakeWriter) Write(p []byte) (int, error) { return len(p), nil }
+func (w *fakeWriter) Close() error {
+	w.cancelledAtClose = w.ctx.Err() != nil
+	return nil
+}
+
+type errReader struct{}
+
+func (errReader) Read([]byte) (int, error) { return 0, errors.New("boom") }
+
+func TestCopyOrAbort_CancelsBeforeCloseOnError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	w := &fakeWriter{ctx: ctx}
+	err := copyOrAbort(w, cancel, errReader{})
+	require.EqualError(t, err, "boom")
+	require.True(t, w.cancelledAtClose)
+
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	defer cancel2()
+	w2 := &fakeWriter{ctx: ctx2}
+	require.NoError(t, copyOrAbort(w2, cancel2, strings.NewReader("ok")))
+	require.False(t, w2.cancelledAtClose)
+	_ = io.EOF
 }
