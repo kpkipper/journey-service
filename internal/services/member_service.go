@@ -119,7 +119,11 @@ func (s *MemberService) Invite(ctx context.Context, actorID, slug, username, rol
 	}
 	if s.Blocks != nil {
 		// A block between the target and the actor or the owner hides the user.
-		for _, id := range []string{actorID, a.Journey.OwnerID} {
+		ids := []string{a.Journey.OwnerID}
+		if actorID != a.Journey.OwnerID {
+			ids = append(ids, actorID)
+		}
+		for _, id := range ids {
 			if id == target.ID {
 				continue
 			}
@@ -197,6 +201,26 @@ func (s *MemberService) ListMembers(ctx context.Context, actorID, slug string) (
 	return append(out, rows...), nil
 }
 
+// inviteBlocked reports whether a pending invite for userID is hidden by a
+// block between userID and the trip owner or the inviter.
+func (s *MemberService) inviteBlocked(ctx context.Context, userID string, j *models.Journey, invitedBy string) (bool, error) {
+	if s.Blocks == nil {
+		return false, nil
+	}
+	for _, id := range []string{j.OwnerID, invitedBy} {
+		if id == "" || id == userID {
+			continue
+		}
+		if b, err := s.Blocks.Blocked(ctx, userID, id); err != nil || b {
+			return b, err
+		}
+		if id == j.OwnerID && invitedBy == j.OwnerID {
+			break
+		}
+	}
+	return false, nil
+}
+
 func (s *MemberService) MyInvites(ctx context.Context, userID string) ([]InviteView, error) {
 	rows, err := s.Members.ListInvitesForUser(ctx, userID)
 	if err != nil {
@@ -209,6 +233,11 @@ func (s *MemberService) MyInvites(ctx context.Context, userID string) ([]InviteV
 			return nil, err
 		}
 		if j == nil {
+			continue
+		}
+		if hidden, err := s.inviteBlocked(ctx, userID, j, m.InvitedBy); err != nil {
+			return nil, err
+		} else if hidden {
 			continue
 		}
 		v := InviteView{ID: m.ID, JourneySlug: j.Slug, JourneyTitle: j.Title, Role: m.Role}
@@ -287,6 +316,11 @@ func (s *MemberService) RespondInvite(ctx context.Context, userID, memberID stri
 		return err
 	}
 	if j == nil {
+		return ErrInviteNotFound
+	}
+	if hidden, err := s.inviteBlocked(ctx, userID, j, m.InvitedBy); err != nil {
+		return err
+	} else if hidden {
 		return ErrInviteNotFound
 	}
 	return s.joinInvited(ctx, m.ID)

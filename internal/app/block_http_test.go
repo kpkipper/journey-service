@@ -4,7 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/kpkipper/journey-service/internal/models"
 	"github.com/kpkipper/journey-service/internal/repository"
+	"github.com/kpkipper/journey-service/internal/services"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -159,4 +161,53 @@ func TestBlock_HidesMomentsOfBlockedUploader(t *testing.T) {
 	assert.Equal(t, 1, count(carol), "carol no longer sees bob's moment")
 	assert.Equal(t, 2, count(alice), "alice unaffected")
 	assert.Equal(t, 1, count(bob), "bob does not see carol's moment either (either direction)")
+}
+
+func TestBlock_PendingInvites(t *testing.T) {
+	for _, dir := range []string{"owner blocks invitee", "invitee blocks owner"} {
+		for _, preBlock := range []bool{false, true} {
+			name := dir
+			if preBlock {
+				name += " (block row only)"
+			}
+			t.Run(name, func(t *testing.T) {
+				e := newEnv(t)
+				alice := e.named(t, "alice@gmail.com", "alice")
+				bob := e.named(t, "bob@gmail.com", "bob")
+				slug := e.trip(t, alice, "Trip", "public", futureDates)
+				status, _, raw := e.do(t, "POST", api+"/journeys/"+slug+"/members", alice, `{"username":"bob","role":"traveler"}`)
+				require.Equal(t, 201, status, raw)
+				_, body, _ := e.do(t, "GET", api+"/me/invites", bob, "")
+				id := body["data"].([]any)[0].(map[string]any)["id"].(string)
+
+				blocker, blocked := alice, "bob"
+				if dir == "invitee blocks owner" {
+					blocker, blocked = bob, "alice"
+				}
+				if preBlock {
+					// only the block row: the read/accept guards must hold without the cleanup
+					if dir == "owner blocks invitee" {
+						e.block(t, alice, bob)
+					} else {
+						e.block(t, bob, alice)
+					}
+				} else {
+					// BlockService (no HTTP route yet) also deletes the pending invite.
+					bs := services.NewBlockService(repository.NewUserRepository(e.db), repository.NewBlockRepository(e.db), repository.NewFollowRepository(e.db))
+					require.NoError(t, bs.Block(context.Background(), e.userID(t, blocker), blocked))
+					var n int64
+					require.NoError(t, e.db.Model(&models.JourneyMember{}).Where("id = ?", id).Count(&n).Error)
+					assert.Zero(t, n, "pending invite deleted at block time")
+				}
+
+				status, body, raw = e.do(t, "GET", api+"/me/invites", bob, "")
+				require.Equal(t, 200, status, raw)
+				assert.Empty(t, body["data"], raw)
+				status, _, raw = e.do(t, "POST", api+"/me/invites/"+id+"/accept", bob, "")
+				assert.Equal(t, 404, status, raw)
+				status, _, _ = e.do(t, "GET", api+"/journeys/"+slug, bob, "")
+				assert.Equal(t, 404, status, "still not a member")
+			})
+		}
+	}
 }

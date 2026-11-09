@@ -30,8 +30,17 @@ func (r *blockGorm) BlockAndUnfollow(ctx context.Context, blockerID, blockedID s
 		if err := insertBlock(tx, blockerID, blockedID); err != nil {
 			return err
 		}
-		return tx.Where("(follower_id = ? AND followee_id = ?) OR (follower_id = ? AND followee_id = ?)",
-			blockerID, blockedID, blockedID, blockerID).Delete(&models.Follow{}).Error
+		if err := tx.Where("(follower_id = ? AND followee_id = ?) OR (follower_id = ? AND followee_id = ?)",
+			blockerID, blockedID, blockedID, blockerID).Delete(&models.Follow{}).Error; err != nil {
+			return err
+		}
+		// Pending invites between the two (in trips either owns, or sent by the
+		// other) die with the block; joined memberships stay.
+		owned := tx.Model(&models.Journey{}).Select("id").Where("owner_id = ?", blockerID)
+		ownedByBlocked := tx.Model(&models.Journey{}).Select("id").Where("owner_id = ?", blockedID)
+		return tx.Where("status = ? AND ((user_id = ? AND (journey_id IN (?) OR invited_by = ?)) OR (user_id = ? AND (journey_id IN (?) OR invited_by = ?)))",
+			models.StatusInvited, blockedID, owned, blockerID, blockerID, ownedByBlocked, blockedID).
+			Delete(&models.JourneyMember{}).Error
 	})
 }
 
