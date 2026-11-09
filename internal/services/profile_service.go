@@ -95,18 +95,19 @@ func (s *ProfileService) Get(ctx context.Context, viewerID, username string) (*P
 		return nil, err
 	}
 	if s.Blocks != nil && viewerID != "" && viewerID != u.ID {
-		blocked, err := s.Blocks.Blocked(ctx, viewerID, u.ID)
+		// "Blocked by them" wins over "I blocked them" when both hold.
+		theirs, err := s.Blocks.IsBlocking(ctx, u.ID, viewerID)
 		if err != nil {
 			return nil, err
 		}
-		if blocked {
-			mine, err := s.Blocks.IsBlocking(ctx, viewerID, u.ID)
-			if err != nil {
-				return nil, err
-			}
-			if !mine {
-				return nil, ErrUserNotFound // the viewer was blocked by this user
-			}
+		if theirs {
+			return nil, ErrUserNotFound
+		}
+		mine, err := s.Blocks.IsBlocking(ctx, viewerID, u.ID)
+		if err != nil {
+			return nil, err
+		}
+		if mine {
 			p.IsBlocked = true // empty profile; counts stay
 			return p, nil
 		}

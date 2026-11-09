@@ -49,6 +49,7 @@ type MomentDeps struct {
 	Moments   repository.MomentRepository
 	Itinerary repository.ItineraryRepository
 	Users     repository.UserRepository
+	Blocks    repository.BlockRepository // optional (nil = no blocks)
 	Store     storage.Store
 	Video     media.VideoProcessor
 	TempDir   string
@@ -534,6 +535,10 @@ func (s *MomentService) List(ctx context.Context, viewerID, slug string) ([]Mome
 	if err != nil {
 		return nil, err
 	}
+	ms, err = s.WithoutBlockedUploaders(ctx, viewerID, ms)
+	if err != nil {
+		return nil, err
+	}
 	ownerID := ""
 	if j, err := s.Access.journeys.GetByID(ctx, v.ID); err != nil {
 		return nil, err
@@ -581,6 +586,29 @@ func (s *MomentService) List(ctx context.Context, viewerID, slug string) ([]Mome
 		}
 		mv.PlanID = keep[i].planID
 		out = append(out, *mv)
+	}
+	return out, nil
+}
+
+// WithoutBlockedUploaders drops moments whose uploader is block-related to the
+// viewer (either direction). One RelatedIDs query per call. Shared with the
+// feed so every moment listing applies the same filter.
+func (s *MomentService) WithoutBlockedUploaders(ctx context.Context, viewerID string, ms []models.Moment) ([]models.Moment, error) {
+	if s.Blocks == nil || viewerID == "" || len(ms) == 0 {
+		return ms, nil
+	}
+	related, err := s.Blocks.RelatedIDs(ctx, viewerID)
+	if err != nil {
+		return nil, err
+	}
+	if len(related) == 0 {
+		return ms, nil
+	}
+	out := make([]models.Moment, 0, len(ms))
+	for _, m := range ms {
+		if !related[m.UploaderID] {
+			out = append(out, m)
+		}
 	}
 	return out, nil
 }

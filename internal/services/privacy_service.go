@@ -161,6 +161,11 @@ func (s *PrivacyService) ViewOf(ctx context.Context, viewerID string, j *models.
 
 func (s *PrivacyService) view(ctx context.Context, viewerID string, a *Access) (*JourneyView, bool, error) {
 	j := a.Journey
+	if hidden, err := s.Access.HiddenByBlock(ctx, viewerID, a); err != nil {
+		return nil, false, err
+	} else if hidden {
+		return nil, false, nil
+	}
 	rel, err := s.Relation(ctx, viewerID, j, a.Role)
 	if err != nil {
 		return nil, false, err

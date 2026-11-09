@@ -39,7 +39,8 @@ func New(d Deps) *fiber.App {
 
 	memberRepo := repository.NewMemberRepository(d.DB)
 	followRepo := repository.NewFollowRepository(d.DB)
-	accessSvc := services.NewAccessService(journeyRepo, memberRepo).WithFollows(followRepo)
+	blockRepo := repository.NewBlockRepository(d.DB)
+	accessSvc := services.NewAccessService(journeyRepo, memberRepo).WithFollows(followRepo).WithBlocks(blockRepo)
 	privacySvc := services.NewPrivacyService(services.PrivacyDeps{
 		Access: accessSvc, Follows: followRepo, Members: memberRepo, Users: userRepo, Now: d.Now,
 	})
@@ -55,7 +56,7 @@ func New(d Deps) *fiber.App {
 	}
 	momentSvc := services.NewMomentService(services.MomentDeps{
 		Access: accessSvc, Privacy: privacySvc, Moments: momentRepo, Itinerary: itineraryRepo,
-		Users: userRepo, Store: store, Video: d.Video, TempDir: tempDir, Now: d.Now,
+		Users: userRepo, Blocks: blockRepo, Store: store, Video: d.Video, TempDir: tempDir, Now: d.Now,
 	})
 	journeySvc := services.NewJourneyService(journeyRepo, accessSvc).WithMoments(momentRepo, momentSvc.DeleteForJourney)
 	itinerarySvc := services.NewItineraryService(accessSvc, itineraryRepo, journeyRepo, momentRepo)
@@ -64,10 +65,10 @@ func New(d Deps) *fiber.App {
 		Journeys: journeyRepo,
 		Members:  memberRepo,
 		Users:    userRepo,
+		Blocks:   blockRepo,
 		WebURL:   strings.TrimRight(d.WebURL, "/"),
 		Now:      d.Now,
 	})
-	blockRepo := repository.NewBlockRepository(d.DB)
 	userSvc := services.NewUserService(userRepo).WithBlocks(blockRepo)
 	followSvc := services.NewFollowService(userRepo, followRepo).WithBlocks(blockRepo)
 	profileSvc := services.NewProfileService(services.ProfileDeps{

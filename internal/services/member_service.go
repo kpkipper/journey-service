@@ -29,6 +29,7 @@ type MemberDeps struct {
 	Journeys repository.JourneyRepository
 	Members  repository.MemberRepository
 	Users    repository.UserRepository
+	Blocks   repository.BlockRepository // optional (nil = no blocks)
 	WebURL   string
 	Now      func() time.Time
 }
@@ -115,6 +116,19 @@ func (s *MemberService) Invite(ctx context.Context, actorID, slug, username, rol
 	}
 	if target == nil {
 		return nil, ErrUserNotFound
+	}
+	if s.Blocks != nil {
+		// A block between the target and the actor or the owner hides the user.
+		for _, id := range []string{actorID, a.Journey.OwnerID} {
+			if id == target.ID {
+				continue
+			}
+			if blocked, err := s.Blocks.Blocked(ctx, id, target.ID); err != nil {
+				return nil, err
+			} else if blocked {
+				return nil, ErrUserNotFound
+			}
+		}
 	}
 	if target.ID == a.Journey.OwnerID || target.ID == actorID {
 		return nil, ErrAlreadyMember
@@ -443,6 +457,13 @@ func (s *MemberService) JoinByLink(ctx context.Context, userID, token string) (s
 	}
 	if a.IsMember() {
 		return j.Slug, nil
+	}
+	if s.Blocks != nil {
+		if blocked, err := s.Blocks.Blocked(ctx, userID, j.OwnerID); err != nil {
+			return "", err
+		} else if blocked {
+			return "", ErrInviteNotFound
+		}
 	}
 	// The link only works while its creator could still hand out invites.
 	if link.CreatedBy != j.OwnerID {

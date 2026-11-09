@@ -17,6 +17,7 @@ type AccessService struct {
 	journeys repository.JourneyRepository
 	members  repository.MemberRepository
 	follows  repository.FollowRepository // optional; nil means nobody follows anybody
+	blocks   repository.BlockRepository  // optional; nil means no blocks
 }
 
 func NewAccessService(j repository.JourneyRepository, m repository.MemberRepository) *AccessService {
@@ -30,12 +31,33 @@ func (s *AccessService) WithFollows(f repository.FollowRepository) *AccessServic
 	return s
 }
 
+// WithBlocks makes trips of a block-related owner invisible to non-members.
+func (s *AccessService) WithBlocks(b repository.BlockRepository) *AccessService {
+	s.blocks = b
+	return s
+}
+
+// HiddenByBlock reports whether the trip must look missing to viewerID: the
+// viewer is not a member, the trip has an owner, and the viewer and the owner
+// blocked each other (either direction). Members keep access.
+func (s *AccessService) HiddenByBlock(ctx context.Context, viewerID string, a *Access) (bool, error) {
+	if s.blocks == nil || viewerID == "" || a.IsMember() || a.Journey.OwnerID == "" || a.Journey.OwnerID == viewerID {
+		return false, nil
+	}
+	return s.blocks.Blocked(ctx, viewerID, a.Journey.OwnerID)
+}
+
 // Deny is the error for an actor who lacks the rights for a write. A non-member
 // who may not even see the trip gets ErrNotFound (the trip must not reveal
 // itself); anyone else gets ErrForbidden.
 func (s *AccessService) Deny(ctx context.Context, a *Access, userID string) error {
 	if a.IsMember() {
 		return ErrForbidden
+	}
+	if hidden, err := s.HiddenByBlock(ctx, userID, a); err != nil {
+		return err
+	} else if hidden {
+		return ErrNotFound
 	}
 	rel, err := relationOf(ctx, s.follows, userID, a.Journey, a.Role)
 	if err != nil {

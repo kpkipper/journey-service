@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/kpkipper/journey-service/internal/repository"
 	"github.com/kpkipper/journey-service/internal/testutil"
@@ -68,9 +69,16 @@ func TestProfile_Blocks(t *testing.T) {
 	bsvc := NewBlockService(users, blocks, f.follows)
 	require.NoError(t, f.follows.Follow(ctx, "bob", "alice"))
 	require.NoError(t, bsvc.Block(ctx, "alice", "bob"))
+	// bob has a public trip and an ongoing one: the blocker must still see nothing.
+	f.trip(t, pTrip{owner: "bob", visibility: "public", dates: [2]time.Time{privacyNow.AddDate(0, -3, 0), privacyNow.AddDate(0, -3, 5)}})
+	f.trip(t, pTrip{owner: "bob", visibility: "public", dates: [2]time.Time{privacyNow.AddDate(0, 0, -1), privacyNow.AddDate(0, 0, 3)}})
+	p0, err := f.svc.Get(ctx, "str", "bob") // sanity: a stranger does see them
+	require.NoError(t, err)
+	require.NotEmpty(t, p0.Upcoming) // the ongoing trip, redacted for a stranger
+	require.NotEmpty(t, p0.Past)
 
 	// blocked viewer: not found
-	_, err := f.svc.Get(ctx, "bob", "alice")
+	_, err = f.svc.Get(ctx, "bob", "alice")
 	assert.ErrorIs(t, err, ErrUserNotFound)
 
 	// blocker sees the blocked user's empty profile
@@ -91,6 +99,19 @@ func TestProfile_Blocks(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, p.IsBlocked)
 	assert.Equal(t, int64(1), p.Followers) // fol only; bob's follow was removed
+}
+
+func TestProfile_MutualBlockBlockedByThemWins(t *testing.T) {
+	ctx := context.Background()
+	f := newProfileFixture(t)
+	blocks := repository.NewBlockRepository(f.db)
+	f.svc.Blocks = blocks
+	require.NoError(t, blocks.Block(ctx, "alice", "bob"))
+	require.NoError(t, blocks.Block(ctx, "bob", "alice"))
+	_, err := f.svc.Get(ctx, "alice", "bob")
+	assert.ErrorIs(t, err, ErrUserNotFound)
+	_, err = f.svc.Get(ctx, "bob", "alice")
+	assert.ErrorIs(t, err, ErrUserNotFound)
 }
 
 func TestUserService_PublicProfileFor(t *testing.T) {
