@@ -8,14 +8,23 @@ import (
 )
 
 type Config struct {
-	App    AppConfig
-	DBDSN  Postgres
-	SMTP   SMTP
-	Google Google
+	App     AppConfig
+	DBDSN   Postgres
+	SMTP    SMTP
+	Google  Google
+	Storage Storage
 }
 
 type Google struct {
 	ClientID string `envconfig:"GOOGLE_CLIENT_ID"`
+}
+
+type Storage struct {
+	Driver             string `envconfig:"STORAGE_DRIVER"` // firebase | local
+	FirebaseBucket     string `envconfig:"FIREBASE_STORAGE_BUCKET"`
+	FirebaseCredential string `envconfig:"FIREBASE_SERVICE_ACCOUNT_JSON"` // JSON or base64 of it
+	LocalDir           string `envconfig:"LOCAL_STORAGE_DIR" default:"./.data/media"`
+	PublicAPIURL       string `envconfig:"APP_PUBLIC_API_URL"`
 }
 
 type SMTP struct {

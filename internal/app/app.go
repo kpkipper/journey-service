@@ -1,6 +1,7 @@
 package app
 
 import (
+	"os"
 	"strings"
 	"time"
 
@@ -8,10 +9,12 @@ import (
 	"github.com/kpkipper/journey-service/internal/auth"
 	"github.com/kpkipper/journey-service/internal/handlers"
 	"github.com/kpkipper/journey-service/internal/mailer"
+	"github.com/kpkipper/journey-service/internal/media"
 	"github.com/kpkipper/journey-service/internal/middleware"
 	"github.com/kpkipper/journey-service/internal/repository"
 	"github.com/kpkipper/journey-service/internal/routes"
 	"github.com/kpkipper/journey-service/internal/services"
+	"github.com/kpkipper/journey-service/internal/storage"
 	"gorm.io/gorm"
 )
 
@@ -21,6 +24,11 @@ type Deps struct {
 	Mailer mailer.Mailer
 	WebURL string
 	Now    func() time.Time // nil = time.Now
+
+	Store      storage.Store        // nil = in-memory store (tests)
+	LocalStore *storage.LocalStore  // non-nil mounts /media/local/* and raises BodyLimit
+	Video      media.VideoProcessor // nil interface = video uploads unavailable
+	TempDir    string               // "" = os.TempDir()
 }
 
 // New builds the repositories, services and handlers and returns the configured Fiber app.
@@ -35,8 +43,22 @@ func New(d Deps) *fiber.App {
 	privacySvc := services.NewPrivacyService(services.PrivacyDeps{
 		Access: accessSvc, Follows: followRepo, Members: memberRepo, Users: userRepo, Now: d.Now,
 	})
-	journeySvc := services.NewJourneyService(journeyRepo, accessSvc)
-	itinerarySvc := services.NewItineraryService(accessSvc, repository.NewItineraryRepository(d.DB), journeyRepo, repository.NewMomentRepository(d.DB))
+	itineraryRepo := repository.NewItineraryRepository(d.DB)
+	momentRepo := repository.NewMomentRepository(d.DB)
+	store := d.Store
+	if store == nil {
+		store = storage.NewMemoryStore()
+	}
+	tempDir := d.TempDir
+	if tempDir == "" {
+		tempDir = os.TempDir()
+	}
+	momentSvc := services.NewMomentService(services.MomentDeps{
+		Access: accessSvc, Privacy: privacySvc, Moments: momentRepo, Itinerary: itineraryRepo,
+		Users: userRepo, Store: store, Video: d.Video, TempDir: tempDir, Now: d.Now,
+	})
+	journeySvc := services.NewJourneyService(journeyRepo, accessSvc).WithMoments(momentRepo, momentSvc.DeleteForJourney)
+	itinerarySvc := services.NewItineraryService(accessSvc, itineraryRepo, journeyRepo, momentRepo)
 	memberSvc := services.NewMemberService(services.MemberDeps{
 		Access:   accessSvc,
 		Journeys: journeyRepo,
@@ -60,10 +82,15 @@ func New(d Deps) *fiber.App {
 		Now:     d.Now,
 	})
 
-	app := fiber.New(fiber.Config{
+	cfg := fiber.Config{
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
-	})
+	}
+	if d.LocalStore != nil {
+		// Local PUTs carry the raw file (up to 100 MB video); development only.
+		cfg.BodyLimit = 105 * 1024 * 1024
+	}
+	app := fiber.New(cfg)
 	middleware.Register(app)
 	routes.Register(app,
 		handlers.NewJourneyHandler(journeySvc, privacySvc),
@@ -73,8 +100,12 @@ func New(d Deps) *fiber.App {
 		handlers.NewItineraryHandler(itinerarySvc),
 		handlers.NewFollowHandler(followSvc),
 		handlers.NewProfileHandler(profileSvc),
+		handlers.NewMomentHandler(momentSvc),
 		middleware.RequireAuth(authSvc),
 		middleware.OptionalAuth(authSvc),
 	)
+	if d.LocalStore != nil {
+		d.LocalStore.Register(app.Group("/api/v1"))
+	}
 	return app
 }

@@ -288,3 +288,26 @@ func TestDeleteForJourney(t *testing.T) {
 	assert.Empty(t, rows)
 	assert.Empty(t, e.store.Keys())
 }
+
+func TestListMoments_DanglingPlanShownAsDayLevelForMembers(t *testing.T) {
+	e := newMomentEnv(t)
+	for _, u := range []string{"alice", "bob", "str"} {
+		e.user(u)
+	}
+	j := e.journey("alice", true, "public")
+	e.setDates(j, time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC))
+	e.member(j, "bob", models.RoleTraveler)
+	d := e.day(j)
+	m := e.readyMoment(j, d.ID, "deleted-plan", "alice")
+
+	for _, viewer := range []string{"alice", "bob"} {
+		got, err := e.svc.List(context.Background(), viewer, j.Slug)
+		require.NoError(t, err)
+		require.Len(t, got, 1, viewer)
+		assert.Equal(t, m.ID, got[0].ID)
+		assert.Equal(t, "", got[0].PlanID, "dangling plan is shown day-level")
+	}
+	got, err := e.svc.List(context.Background(), "str", j.Slug)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}

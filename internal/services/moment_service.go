@@ -457,14 +457,24 @@ func (s *MomentService) List(ctx context.Context, viewerID, slug string) ([]Mome
 	}
 	for i := range ms {
 		m := &ms[i]
-		if m.Status != models.MomentReady || !visibleDay[m.DayID] || (m.PlanID != "" && !visiblePlan[m.PlanID]) {
+		if m.Status != models.MomentReady || !visibleDay[m.DayID] {
 			continue
+		}
+		planID := m.PlanID
+		if planID != "" && !visiblePlan[planID] {
+			if v.Role == "" {
+				continue // non-members: the plan may be hidden from them
+			}
+			// Members see every plan, so a plan missing here is dangling
+			// (e.g. after a failed DetachPlan): show it as a day-level moment.
+			planID = ""
 		}
 		canDelete := viewerID != "" && (m.UploaderID == viewerID || (ownerID != "" && ownerID == viewerID))
 		mv, err := s.toView(ctx, m, canDelete)
 		if err != nil {
 			return nil, err
 		}
+		mv.PlanID = planID
 		out = append(out, *mv)
 	}
 	return out, nil

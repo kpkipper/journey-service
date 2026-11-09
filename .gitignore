@@ -50,3 +50,6 @@ go.work.sum
 
 # env file
 .env
+
+# local media storage
+.data/

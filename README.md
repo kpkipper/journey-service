@@ -10,6 +10,7 @@
 - [Itinerary editing](#itinerary-editing)
 - [Privacy](#privacy)
 - [Profile and Follow](#profile-and-follow)
+- [Moments](#moments)
 - [Response Format](#response-format)
 - [Project Structure](#project-structure)
 - [Configuration](#configuration)
@@ -63,7 +64,7 @@ Authorization: Bearer <token>
 | PATCH  | `/api/v1/me`                   | yes  | update `username`, `display_name`, `bio`, `avatar_url` (https, max 2048 bytes) |
 | GET    | `/api/v1/users/:username`      | no   | public profile (no email)                                 |
 
-Journeys have an owner (`owner_id`, set from the logged-in user on create). Creating, updating and deleting a journey requires login; only the owner may update or delete it (`403 forbidden` otherwise). Who may read a journey, and how much of it, follows the [Privacy](#privacy) rules. Journeys created before login existed have an empty `owner_id` and are read-only; to hand one to a user, set its `owner_id` in the database by hand.
+Journeys have an owner (`owner_id`, set from the logged-in user on create). Creating, updating and deleting a journey requires login; only the owner may update or delete it (`403 forbidden` if the trip is visible to the caller but they are not the owner, `404` if the trip is hidden from them). Who may read a journey, and how much of it, follows the [Privacy](#privacy) rules. Journeys created before login existed have an empty `owner_id` and are read-only; to hand them to a user run `./server assign-legacy-owner <username>` (see [Claiming existing trips](#claiming-existing-trips)).
 
 ---
 
@@ -190,7 +191,7 @@ Login is optional; what the response contains depends on the viewer (see [Privac
 PUT /journeys/:slug/update
 ```
 
-Requires login; **owner only** (`403` for editors and everyone else).
+Requires login; **owner only** (`403` for editors and other members or viewers who can see the trip, `404` if the trip is hidden from the caller).
 
 Updates only `title`, `destination`, `country`, `departure_date` and `return_date`, and replaces all days and plans. `cover_url` and `editors_can_invite` are not touched by this endpoint: change them with `PATCH /journeys/:slug`. A deleted trip is `404`. Make sure to include every day and plan you want to keep — anything not sent will be deleted. Days and plans are re-created with fresh IDs on every call, so IDs from an earlier `GET` are stale afterwards. Prefer the fine-grained endpoints under [Itinerary editing](#itinerary-editing) for small changes. Note that a full `PUT` cannot un-hide a hotel plan (plans of category `stay` or emoji `🏨` are hidden automatically): use the plan PATCH with `hidden_from_public: false`.
 
@@ -337,6 +338,49 @@ The profile shows the trips the user owns or has **joined** (not pending invites
 
 ---
 
+## Moments
+
+Photos (jpeg, png, webp, up to 10 MB) and short videos (mp4, mov, up to 100 MB and 60 s) attached to a trip day or plan. Files never pass through the API on upload: the client asks for a signed URL, uploads straight to storage, then completes the moment. The server strips metadata (EXIF/GPS), re-encodes and makes a thumbnail; raw files are never served. Signed upload URLs last 15 minutes and view URLs 1 hour. Uploads left pending for over an hour are cleaned up every 30 minutes.
+
+| Endpoint | Auth | Description |
+| -------- | ---- | ----------- |
+| `POST /journeys/:slug/moments/uploads` | yes | body `{kind, content_type, size_bytes, day_id, plan_id?, caption?}` returns `201 {moment, upload{url,method,headers,expires_at}}`; `PUT` the file to `upload.url` with `upload.headers` verbatim |
+| `POST /journeys/:slug/moments/:id/complete` | yes | processes the upload, returns `200` moment |
+| `GET /journeys/:slug/moments` | optional | `200 {"moments": [...]}`, limited by [Privacy](#privacy) |
+| `PATCH /moments/:id` | yes | body `{"caption"}`, uploader only |
+| `DELETE /moments/:id` | yes | uploader or trip owner, `204` |
+| `GET /me/moments` | yes | your moments across trips |
+
+Errors: `404` for unknown or hidden trips and moments, `409` when deleting a day that has moments (`day has moments`), when a full `PUT /journeys/:slug/update` targets a trip that has moments (`trip has moments`), or when a trip reaches its moment limit. Deleting a trip deletes its moments and files. Video needs `ffmpeg`/`ffprobe` (included in the Docker image); without them video moments are rejected with `video processing is unavailable`.
+
+### Moments / Firebase Storage
+
+1. In the Firebase console enable **Storage** (requires the Blaze plan) and note the bucket name.
+2. Create a service account with the role **Storage Object Admin** on that bucket and download its JSON key.
+3. Set `STORAGE_DRIVER=firebase`, `FIREBASE_STORAGE_BUCKET` and `FIREBASE_SERVICE_ACCOUNT_JSON` (raw JSON or base64) on the service.
+4. Set the bucket CORS so browsers can `PUT` and `GET` through signed URLs. Save as `cors.json` (use your real web origin) and apply it:
+
+```json
+[
+  {
+    "origin": ["https://your-web-app.example.com", "http://localhost:3000"],
+    "method": ["PUT", "GET"],
+    "responseHeader": ["Content-Type", "x-goog-content-length-range"],
+    "maxAgeSeconds": 3600
+  }
+]
+```
+
+```bash
+gcloud storage buckets update gs://<bucket> --cors-file=cors.json
+```
+
+5. Set the Firebase Storage rules to deny everything, since all access goes through signed URLs: `allow read, write: if false;`.
+
+For local development `STORAGE_DRIVER=local` (the default when `APP_ENV` is `development` or `test`) stores files under `./.data/media` and serves them from `/api/v1/media/local/*`. It is refused in any other `APP_ENV`.
+
+---
+
 ## Response Format
 
 ### Success
@@ -421,10 +465,14 @@ cp .env.example .env
 | `APP_WEB_URL` | | web app base URL, used in email login links |
 | `GOOGLE_CLIENT_ID` | | Google OAuth client ID used to verify Google ID tokens |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | | SMTP settings for sending login emails |
+| `STORAGE_DRIVER` | `local` in development/test | `firebase` or `local`; must be `firebase` in any other `APP_ENV` (the server refuses to start otherwise) |
+| `FIREBASE_STORAGE_BUCKET`, `FIREBASE_SERVICE_ACCOUNT_JSON` | | bucket name and service-account key (raw JSON or base64) for `firebase` |
+| `LOCAL_STORAGE_DIR` | `./.data/media` | where the `local` driver keeps files |
+| `APP_PUBLIC_API_URL` | `http://localhost:<APP_PORT>/api/v1` | public API base URL, used to build `local` upload/view URLs |
 
 ### Production
 
-Set these on the deployed service: `APP_ENV=production`, `APP_WEB_URL` (absolute http(s) URL), `GOOGLE_CLIENT_ID`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, and `POSTGRES_*`. The service refuses to start unless `APP_ENV` is `development` or `test` when `SMTP_HOST` is empty (the log mailer prints login links), and refuses to start with SMTP if `APP_WEB_URL` is not an absolute http(s) URL.
+Set these on the deployed service: `APP_ENV=production`, `STORAGE_DRIVER=firebase` with `FIREBASE_STORAGE_BUCKET` and `FIREBASE_SERVICE_ACCOUNT_JSON` (see [Moments / Firebase Storage](#moments--firebase-storage)), `APP_WEB_URL` (absolute http(s) URL), `GOOGLE_CLIENT_ID`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, and `POSTGRES_*`. The service refuses to start unless `APP_ENV` is `development` or `test` when `SMTP_HOST` is empty (the log mailer prints login links), and refuses to start with SMTP if `APP_WEB_URL` is not an absolute http(s) URL.
 
 Set these once on the Cloud Run service (console, or `gcloud run services update journey-service --update-env-vars ...`; prefer Secret Manager for `POSTGRES_PASSWORD` and `SMTP_PASSWORD`). `make deploy.run` uses `--update-env-vars`, so it keeps them on every deploy.
 

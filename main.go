@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"net/url"
 	"os"
@@ -17,7 +18,12 @@ import (
 	appPkg "github.com/kpkipper/journey-service/internal/app"
 	"github.com/kpkipper/journey-service/internal/auth"
 	"github.com/kpkipper/journey-service/internal/mailer"
+	"github.com/kpkipper/journey-service/internal/media"
+	"github.com/kpkipper/journey-service/internal/repository"
+	"github.com/kpkipper/journey-service/internal/services"
+	"github.com/kpkipper/journey-service/internal/storage"
 	"github.com/kpkipper/journey-service/pkg/logger"
+	"gorm.io/gorm"
 )
 
 func main() {
@@ -72,12 +78,61 @@ func main() {
 		mail = mailer.NewSMTPMailer(cfg.SMTP)
 	}
 
+	var store storage.Store
+	var localStore *storage.LocalStore
+	driver := strings.ToLower(strings.TrimSpace(cfg.Storage.Driver))
+	if driver == "" && allowLocalStorage(cfg.App.ENV) {
+		driver = "local"
+	}
+	switch driver {
+	case "local":
+		if !allowLocalStorage(cfg.App.ENV) {
+			log.Fatal().Str("app_env", cfg.App.ENV).Msg("STORAGE_DRIVER=local is only allowed when APP_ENV is development or test; use firebase")
+		}
+		secret := make([]byte, 32)
+		if _, err := rand.Read(secret); err != nil {
+			log.Fatal().Err(err).Msg("failed to generate local storage secret")
+		}
+		base := strings.TrimRight(cfg.Storage.PublicAPIURL, "/")
+		if base == "" {
+			base = fmt.Sprintf("http://localhost:%d/api/v1", cfg.App.Port)
+		}
+		localStore, err = storage.NewLocalStore(cfg.Storage.LocalDir, base+"/media/local", secret)
+		if err != nil {
+			log.Fatal().Err(err).Msg("failed to set up local storage")
+		}
+		store = localStore
+		log.Warn().Str("dir", cfg.Storage.LocalDir).Msg("using local media storage (development only)")
+	case "firebase":
+		if cfg.Storage.FirebaseBucket == "" || strings.TrimSpace(cfg.Storage.FirebaseCredential) == "" {
+			log.Fatal().Msg("FIREBASE_STORAGE_BUCKET and FIREBASE_SERVICE_ACCOUNT_JSON must be set when STORAGE_DRIVER=firebase")
+		}
+		store, err = storage.NewFirebaseStore(context.Background(), cfg.Storage.FirebaseBucket, []byte(cfg.Storage.FirebaseCredential))
+		if err != nil {
+			log.Fatal().Err(err).Msg("failed to set up firebase storage")
+		}
+	default:
+		log.Fatal().Str("storage_driver", cfg.Storage.Driver).Str("app_env", cfg.App.ENV).Msg("STORAGE_DRIVER must be firebase (or local when APP_ENV is development or test)")
+	}
+
+	// A true nil interface (not a typed-nil *FFmpeg) when ffmpeg is missing.
+	var video media.VideoProcessor
+	if f := media.NewFFmpeg(); f.Available() {
+		video = f
+	} else {
+		log.Warn().Msg("ffmpeg/ffprobe not found in PATH; video moments cannot be completed")
+	}
+
 	app := appPkg.New(appPkg.Deps{
-		DB:     db,
-		Google: auth.NewGoogleVerifier(cfg.Google.ClientID),
-		Mailer: mail,
-		WebURL: cfg.App.WebURL,
+		DB:         db,
+		Google:     auth.NewGoogleVerifier(cfg.Google.ClientID),
+		Mailer:     mail,
+		WebURL:     cfg.App.WebURL,
+		Store:      store,
+		LocalStore: localStore,
+		Video:      video,
 	})
+	startMomentCleanup(db, store, video)
 
 	setupGracefulShutdown(app)
 
@@ -87,6 +142,29 @@ func main() {
 		log.Error().Err(err).Msg("server error")
 	}
 }
+
+// startMomentCleanup removes uploads left pending for over an hour, every 30 minutes.
+func startMomentCleanup(db *gorm.DB, store storage.Store, video media.VideoProcessor) {
+	svc := services.NewMomentService(services.MomentDeps{
+		Access:  services.NewAccessService(repository.NewJourneyRepository(db), repository.NewMemberRepository(db)),
+		Moments: repository.NewMomentRepository(db), Store: store, Video: video,
+	})
+	go func() {
+		t := time.NewTicker(30 * time.Minute)
+		defer t.Stop()
+		for range t.C {
+			n, err := svc.CleanupPending(context.Background())
+			if err != nil {
+				logger.Get().Error().Err(err).Msg("moment cleanup failed")
+			} else if n > 0 {
+				logger.Get().Info().Int("removed", n).Msg("moment cleanup")
+			}
+		}
+	}()
+}
+
+// allowLocalStorage reports whether the dev-only local media store may be used.
+func allowLocalStorage(env string) bool { return allowLogMailer(env) }
 
 // allowLogMailer reports whether the dev-only log mailer (prints raw login links) may be used.
 func allowLogMailer(env string) bool {

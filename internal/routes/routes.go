@@ -7,7 +7,7 @@ import (
 
 // Register wires all routes. requireAuth is applied per route (not via group.Use)
 // so unmatched routes still return 404/405.
-func Register(app *fiber.App, j *handlers.JourneyHandler, a *handlers.AuthHandler, u *handlers.UserHandler, m *handlers.MemberHandler, it *handlers.ItineraryHandler, f *handlers.FollowHandler, p *handlers.ProfileHandler, requireAuth, optionalAuth fiber.Handler) {
+func Register(app *fiber.App, j *handlers.JourneyHandler, a *handlers.AuthHandler, u *handlers.UserHandler, m *handlers.MemberHandler, it *handlers.ItineraryHandler, f *handlers.FollowHandler, p *handlers.ProfileHandler, mo *handlers.MomentHandler, requireAuth, optionalAuth fiber.Handler) {
 	v1 := app.Group("/api/v1")
 
 	authG := v1.Group("/auth")
@@ -28,7 +28,11 @@ func Register(app *fiber.App, j *handlers.JourneyHandler, a *handlers.AuthHandle
 	v1.Post("/me/invites/:id/accept", requireAuth, m.Accept)
 	v1.Post("/me/invites/:id/decline", requireAuth, m.Decline)
 	v1.Get("/me/journeys", requireAuth, m.MyJourneys)
+	v1.Get("/me/moments", requireAuth, mo.Mine)
 	v1.Post("/invites/join", requireAuth, m.JoinByLink)
+
+	v1.Patch("/moments/:id", requireAuth, mo.UpdateCaption)
+	v1.Delete("/moments/:id", requireAuth, mo.Delete)
 
 	journeys := v1.Group("/journeys")
 	journeys.Post("/create", requireAuth, j.Create)
@@ -45,6 +49,11 @@ func Register(app *fiber.App, j *handlers.JourneyHandler, a *handlers.AuthHandle
 	journeys.Put("/:slug/days/:dayId/plans/order", requireAuth, it.ReorderPlans)
 	journeys.Patch("/:slug/plans/:planId", requireAuth, it.UpdatePlan)
 	journeys.Delete("/:slug/plans/:planId", requireAuth, it.DeletePlan)
+
+	// Static "uploads" before the :id param.
+	journeys.Post("/:slug/moments/uploads", requireAuth, mo.StartUpload)
+	journeys.Post("/:slug/moments/:id/complete", requireAuth, mo.Complete)
+	journeys.Get("/:slug/moments", optionalAuth, mo.List)
 
 	journeys.Get("/:slug/members", requireAuth, m.List)
 	journeys.Post("/:slug/members", requireAuth, m.Invite)

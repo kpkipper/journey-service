@@ -22,13 +22,15 @@ func respondError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, services.ErrUserNotFound):
 		return utils.Error(c, fiber.StatusNotFound, err.Error())
 	case errors.Is(err, services.ErrMemberNotFound), errors.Is(err, services.ErrInviteNotFound),
-		errors.Is(err, services.ErrDayNotFound), errors.Is(err, services.ErrPlanNotFound):
+		errors.Is(err, services.ErrDayNotFound), errors.Is(err, services.ErrPlanNotFound),
+		errors.Is(err, services.ErrMomentNotFound):
 		return utils.Error(c, fiber.StatusNotFound, err.Error())
 	case errors.Is(err, services.ErrNotFound):
 		return utils.Error(c, fiber.StatusNotFound, "journey not found")
 	case errors.Is(err, services.ErrForbidden):
 		return utils.Error(c, fiber.StatusForbidden, "forbidden")
-	case errors.Is(err, services.ErrUsernameTaken), errors.Is(err, services.ErrAlreadyMember), errors.Is(err, services.ErrTripFull):
+	case errors.Is(err, services.ErrUsernameTaken), errors.Is(err, services.ErrAlreadyMember), errors.Is(err, services.ErrTripFull),
+		errors.Is(err, services.ErrDayHasMoments), errors.Is(err, services.ErrTripHasMoments), errors.Is(err, services.ErrTripMomentLimit):
 		return utils.Error(c, fiber.StatusConflict, err.Error())
 	case errors.Is(err, services.ErrTooManyRequests):
 		return utils.Error(c, fiber.StatusTooManyRequests, err.Error())

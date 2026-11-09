@@ -14,6 +14,18 @@ func TestAllowLogMailer(t *testing.T) {
 	}
 }
 
+func TestAllowLocalStorage(t *testing.T) {
+	cases := map[string]bool{
+		"development": true, "Development": true, "test": true, " TEST ": true,
+		"production": false, "staging": false, "": false,
+	}
+	for env, want := range cases {
+		if got := allowLocalStorage(env); got != want {
+			t.Errorf("allowLocalStorage(%q) = %v, want %v", env, got, want)
+		}
+	}
+}
+
 func TestValidWebURL(t *testing.T) {
 	cases := map[string]bool{
 		"http://localhost:3000": true, "https://journey.example.com": true,
