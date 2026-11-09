@@ -138,14 +138,8 @@ func (s *FollowService) filter(ctx context.Context, userID string, in []models.F
 	}
 	out := make([]models.FollowEntry, 0, len(in))
 	for _, e := range in {
-		if rel != nil {
-			u, err := s.users.GetByUsername(ctx, e.User.Username)
-			if err != nil {
-				return nil, err
-			}
-			if u != nil && rel[u.ID] {
-				continue
-			}
+		if rel[e.UserID] {
+			continue
 		}
 		out = append(out, e)
 	}

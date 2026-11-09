@@ -138,6 +138,7 @@ func (r *followGorm) ListFollowers(ctx context.Context, userID string, limit int
 }
 
 type followEntryRow struct {
+	ID          string
 	Username    string
 	DisplayName string
 	AvatarURL   string
@@ -150,7 +151,7 @@ type followEntryRow struct {
 func (r *followGorm) listEntries(ctx context.Context, table, userCol, whereCol, id string, limit int) ([]models.FollowEntry, error) {
 	var rows []followEntryRow
 	q := r.db.WithContext(ctx).Table(table).
-		Select("users.username, users.display_name, users.avatar_url, users.bio, "+table+".created_at").
+		Select("users.id, users.username, users.display_name, users.avatar_url, users.bio, "+table+".created_at").
 		Joins("JOIN users ON users.id = "+table+"."+userCol).
 		Where(table+"."+whereCol+" = ?", id).
 		Order(table + ".created_at DESC, users.username ASC")
@@ -163,6 +164,7 @@ func (r *followGorm) listEntries(ctx context.Context, table, userCol, whereCol, 
 	out := make([]models.FollowEntry, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, models.FollowEntry{
+			UserID:    row.ID,
 			User:      models.PublicProfile{Username: row.Username, DisplayName: row.DisplayName, AvatarURL: row.AvatarURL, Bio: row.Bio},
 			CreatedAt: row.CreatedAt,
 		})

@@ -176,6 +176,8 @@ func TestFollowRepository_ListRequestsNewestFirst(t *testing.T) {
 	assert.Equal(t, "carol", got[0].User.Username)
 	assert.Equal(t, "bob", got[1].User.Username)
 	assert.Equal(t, "alice", got[2].User.Username)
+	assert.Equal(t, ids["carol"], got[0].UserID)
+	assert.Equal(t, ids["alice"], got[2].UserID)
 	assert.Equal(t, "carol D", got[0].User.DisplayName)
 	assert.Equal(t, "carol bio", got[0].User.Bio)
 	assert.Equal(t, "http://a/carol", got[0].User.AvatarURL)
@@ -206,5 +208,7 @@ func TestFollowRepository_ListFollowers(t *testing.T) {
 	assert.Equal(t, "bob", got[0].User.Username)
 	assert.Equal(t, "alice", got[1].User.Username)
 	assert.Equal(t, "alice bio", got[1].User.Bio)
+	assert.Equal(t, ids["bob"], got[0].UserID)
+	assert.Equal(t, ids["alice"], got[1].UserID)
 	assert.True(t, got[0].CreatedAt.Equal(base.Add(time.Minute)))
 }

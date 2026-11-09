@@ -12,6 +12,7 @@ type FollowRequest struct {
 
 // FollowEntry is a user in a follower or follow-request list.
 type FollowEntry struct {
+	UserID    string        `json:"-"`
 	User      PublicProfile `json:"user"`
 	CreatedAt time.Time     `json:"created_at"`
 }
