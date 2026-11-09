@@ -126,7 +126,12 @@ func TestMomentsHTTP_PhotoFlow(t *testing.T) {
 	pu, err := url.Parse(u)
 	require.NoError(t, err)
 	q := pu.Query()
-	q.Set("sig", "00"+q.Get("sig")[2:])
+	sig := q.Get("sig")
+	flip := "0"
+	if sig[0] == '0' {
+		flip = "1"
+	}
+	q.Set("sig", flip+sig[1:]) // always differs from the real signature
 	pu.RawQuery = q.Encode()
 	st, _, _ = e.rawReq(t, "GET", pu.String(), nil, nil)
 	assert.Equal(t, 403, st)

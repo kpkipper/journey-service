@@ -70,7 +70,7 @@ func ProcessImage(r io.Reader) (*ImageResult, error) {
 	}
 
 	full := fitWithin(img, FullMaxEdge)
-	thumb := fitWithin(img, ThumbMaxEdge)
+	thumb := fitWithin(full, ThumbMaxEdge)
 	fullBytes, err := encodeJPEG(full, fullQuality)
 	if err != nil {
 		return nil, err

@@ -253,6 +253,9 @@ func (s *MomentService) StartUpload(ctx context.Context, userID, slug string, in
 	default:
 		return nil, &ValidationError{Message: "kind must be photo or video"}
 	}
+	if in.Kind == models.MomentVideo && s.Video == nil {
+		return nil, &ValidationError{Message: "video processing is unavailable"}
+	}
 	if in.SizeBytes <= 0 {
 		return nil, &ValidationError{Message: "size_bytes must be positive"}
 	}
@@ -371,6 +374,20 @@ func (s *MomentService) Complete(ctx context.Context, userID, slug, momentID str
 		return nil, ErrMomentNotFound
 	}
 
+	// Take the processing slot before opening the raw object so queued
+	// requests do not hold storage readers.
+	sem := s.imageSem
+	if m.Kind == models.MomentVideo {
+		if s.Video == nil {
+			return nil, &ValidationError{Message: "video processing is unavailable"}
+		}
+		sem = s.videoSem
+	}
+	if err := s.acquire(ctx, sem); err != nil {
+		return nil, err
+	}
+	defer func() { <-sem }()
+
 	rawKey := storage.RawKey(m.JourneyID, m.ID)
 	rc, size, err := s.Store.Open(ctx, rawKey)
 	if errors.Is(err, storage.ErrObjectNotFound) {
@@ -395,14 +412,6 @@ func (s *MomentService) Complete(ctx context.Context, userID, slug, momentID str
 		fullSize       int64
 	)
 	if m.Kind == models.MomentVideo {
-		if s.Video == nil {
-			return nil, &ValidationError{Message: "video processing is unavailable"}
-		}
-		if err := s.acquire(ctx, s.videoSem); err != nil {
-			return nil, err
-		}
-		defer func() { <-s.videoSem }()
-
 		in, err := os.CreateTemp(s.TempDir, "moment-in-*")
 		if err != nil {
 			return nil, err
@@ -434,10 +443,6 @@ func (s *MomentService) Complete(ctx context.Context, userID, slug, momentID str
 		width, height, durationMs = res.Width, res.Height, res.DurationMs
 		fullName, ctyp = "video.mp4", "video/mp4"
 	} else {
-		if err := s.acquire(ctx, s.imageSem); err != nil {
-			return nil, err
-		}
-		defer func() { <-s.imageSem }()
 		res, err := media.ProcessImage(io.LimitReader(rc, max+1))
 		if err != nil {
 			if msg, ok := mediaRejection(err); ok {

@@ -8,6 +8,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"regexp"
+	"strings"
 	"time"
 )
 
@@ -44,4 +46,25 @@ func RawKey(journeyID, momentID string) string {
 // MomentKey is where a processed file (full.jpg, thumb.jpg, video.mp4) lives.
 func MomentKey(journeyID, momentID, name string) string {
 	return "moments/" + journeyID + "/" + momentID + "/" + name
+}
+
+// Raw uploads have no file name; processed files must have one.
+var keyRe = regexp.MustCompile(`^(uploads/[0-9a-z]+/[0-9a-z]+|moments/[0-9a-z]+/[0-9a-z]+/[a-z]+\.(jpg|mp4))$`)
+
+func validKey(key string) bool { return keyRe.MatchString(key) }
+
+// checkPutKey: signed uploads may only target raw uploads/ keys.
+func checkPutKey(key string) error {
+	if !validKey(key) || !strings.HasPrefix(key, "uploads/") {
+		return ErrInvalidKey
+	}
+	return nil
+}
+
+// checkGetKey: signed downloads may only target processed moments/ keys, never raw uploads.
+func checkGetKey(key string) error {
+	if !validKey(key) || !strings.HasPrefix(key, "moments/") {
+		return ErrInvalidKey
+	}
+	return nil
 }

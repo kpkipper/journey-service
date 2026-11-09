@@ -13,18 +13,12 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 )
-
-// Raw uploads have no file name; processed files must have one.
-var keyRe = regexp.MustCompile(`^(uploads/[0-9a-z]+/[0-9a-z]+|moments/[0-9a-z]+/[0-9a-z]+/[a-z]+\.(jpg|mp4))$`)
-
-func validKey(key string) bool { return keyRe.MatchString(key) }
 
 // LocalStore keeps objects on disk and serves them through HMAC-signed URLs
 // handled by the API itself. Development use only.
@@ -68,16 +62,16 @@ func (s *LocalStore) signedURL(method, key string, ttl time.Duration, max int64,
 }
 
 func (s *LocalStore) SignedPut(_ context.Context, key, contentType string, maxBytes int64, ttl time.Duration) (*UploadTarget, error) {
-	if !validKey(key) || !strings.HasPrefix(key, "uploads/") {
-		return nil, ErrInvalidKey
+	if err := checkPutKey(key); err != nil {
+		return nil, err
 	}
 	u, exp := s.signedURL("PUT", key, ttl, maxBytes, contentType)
 	return &UploadTarget{URL: u, Method: "PUT", Headers: map[string]string{"Content-Type": contentType}, ExpiresAt: exp}, nil
 }
 
 func (s *LocalStore) SignedGet(_ context.Context, key string, ttl time.Duration) (string, error) {
-	if !validKey(key) || !strings.HasPrefix(key, "moments/") {
-		return "", ErrInvalidKey
+	if err := checkGetKey(key); err != nil {
+		return "", err
 	}
 	u, _ := s.signedURL("GET", key, ttl, 0, "")
 	return u, nil

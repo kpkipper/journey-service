@@ -123,3 +123,17 @@ func TestCopyOrAbort_CancelsBeforeCloseOnError(t *testing.T) {
 	require.False(t, w2.cancelledAtClose)
 	_ = io.EOF
 }
+
+func TestFirebaseStore_RejectsBadKeysAndPrefixes(t *testing.T) {
+	ctx := context.Background()
+	s, err := NewFirebaseStore(ctx, "my-bucket", fakeCreds(t))
+	require.NoError(t, err)
+	for _, key := range []string{"moments/j1/m1/full.jpg", "uploads/j1", "uploads/j1/m1/../x", "../uploads/j1/m1", "uploads/J1/m1", ""} {
+		_, err := s.SignedPut(ctx, key, "image/jpeg", 100, time.Minute)
+		require.ErrorIs(t, err, ErrInvalidKey, key)
+	}
+	for _, key := range []string{"uploads/j1/m1", "moments/j1/m1", "moments/j1/m1/../../x.jpg", "moments/j1/m1/a.txt", ""} {
+		_, err := s.SignedGet(ctx, key, time.Minute)
+		require.ErrorIs(t, err, ErrInvalidKey, key)
+	}
+}

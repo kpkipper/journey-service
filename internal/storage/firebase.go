@@ -71,6 +71,9 @@ func bytesTrim(b []byte) []byte {
 }
 
 func (s *FirebaseStore) SignedPut(_ context.Context, key, contentType string, maxBytes int64, ttl time.Duration) (*UploadTarget, error) {
+	if err := checkPutKey(key); err != nil {
+		return nil, err
+	}
 	rng := fmt.Sprintf("0,%d", maxBytes)
 	exp := time.Now().Add(ttl)
 	u, err := s.client.Bucket(s.bucket).SignedURL(key, &gcs.SignedURLOptions{
@@ -94,6 +97,9 @@ func (s *FirebaseStore) SignedPut(_ context.Context, key, contentType string, ma
 }
 
 func (s *FirebaseStore) SignedGet(_ context.Context, key string, ttl time.Duration) (string, error) {
+	if err := checkGetKey(key); err != nil {
+		return "", err
+	}
 	return s.client.Bucket(s.bucket).SignedURL(key, &gcs.SignedURLOptions{
 		GoogleAccessID: s.email,
 		PrivateKey:     s.key,

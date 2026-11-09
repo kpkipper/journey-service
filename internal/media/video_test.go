@@ -217,3 +217,14 @@ func TestFFmpeg_RejectsNonVideo(t *testing.T) {
 		t.Fatalf("got %v, want ErrUnsupportedFormat", err)
 	}
 }
+
+func TestCheckVideoDims(t *testing.T) {
+	if err := checkVideoDims(7680, 4320); err != nil { // 8K, 33M pixels
+		t.Fatalf("8K should pass: %v", err)
+	}
+	for _, d := range [][2]int{{8000, 6000}, {0, 1080}, {100000, 100000}} {
+		if err := checkVideoDims(d[0], d[1]); !errors.Is(err, ErrUnsupportedFormat) {
+			t.Fatalf("%v: got %v", d, err)
+		}
+	}
+}

@@ -15,6 +15,7 @@ import (
 
 const (
 	maxVideoSeconds = 60.5
+	maxVideoPixels  = 40_000_000
 	ffmpegTimeout   = 2 * time.Minute
 )
 
@@ -91,6 +92,14 @@ func displaySize(w, h, rotation int) (int, int) {
 	return w, h
 }
 
+// checkVideoDims refuses frames too large to thumbnail safely (decoder memory).
+func checkVideoDims(w, h int) error {
+	if w <= 0 || h <= 0 || int64(w)*int64(h) > maxVideoPixels {
+		return fmt.Errorf("%w: video frame size %dx%d", ErrUnsupportedFormat, w, h)
+	}
+	return nil
+}
+
 func (f *FFmpeg) Process(ctx context.Context, inPath, outDir string) (*VideoResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, ffmpegTimeout)
 	defer cancel()
@@ -121,6 +130,9 @@ func (f *FFmpeg) Process(ctx context.Context, inPath, outDir string) (*VideoResu
 		return nil, fmt.Errorf("%w: no video stream", ErrUnsupportedFormat)
 	}
 	vs := probe.Streams[videoIdx]
+	if err := checkVideoDims(vs.Width, vs.Height); err != nil {
+		return nil, err
+	}
 	if !allowedVideoCodecs[vs.CodecName] {
 		return nil, fmt.Errorf("%w: video codec %q", ErrUnsupportedFormat, vs.CodecName)
 	}
@@ -173,7 +185,7 @@ func (f *FFmpeg) Process(ctx context.Context, inPath, outDir string) (*VideoResu
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		return nil, fmt.Errorf("thumbnail failed: %w", err)
+		return nil, fmt.Errorf("%w: thumbnail failed: %w", ErrUnsupportedFormat, err)
 	}
 	thumb, err := os.ReadFile(thumbPath)
 	if err != nil {

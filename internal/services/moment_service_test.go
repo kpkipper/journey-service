@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/color"
 	"image/jpeg"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -492,13 +493,13 @@ func TestComplete_VideoRejectedByProcessorUsesSentinelMessage(t *testing.T) {
 
 func TestComplete_VideoUnavailableKeepsRow(t *testing.T) {
 	e := newMomentEnv(t)
-	e.svc.Video = nil
 	e.user("alice")
 	j := e.journey("alice", true, "")
 	d := e.day(j)
 	id := e.start("alice", j, StartUploadInput{Kind: "video", ContentType: "video/mp4", SizeBytes: 100, DayID: d.ID})
 	e.store.PutRaw(storage.RawKey(j.ID, id), []byte("raw"))
 
+	e.svc.Video = nil // processor went away after the upload started
 	_, err := e.svc.Complete(context.Background(), "alice", j.Slug, id)
 	var ve *ValidationError
 	require.ErrorAs(t, err, &ve)
@@ -535,4 +536,46 @@ func TestComplete_RecheckPostingRight(t *testing.T) {
 	require.NotNil(t, row)
 	assert.Equal(t, models.MomentPending, row.Status)
 	assert.Equal(t, []string{storage.RawKey(j.ID, id)}, e.store.Keys())
+}
+
+func TestStartUpload_VideoUnavailableIssuesNoUpload(t *testing.T) {
+	e := newMomentEnv(t)
+	e.svc.Video = nil
+	e.user("alice")
+	j := e.journey("alice", true, "")
+	d := e.day(j)
+	_, err := e.svc.StartUpload(context.Background(), "alice", j.Slug,
+		StartUploadInput{Kind: "video", ContentType: "video/mp4", SizeBytes: 100, DayID: d.ID})
+	var ve *ValidationError
+	require.ErrorAs(t, err, &ve)
+	assert.Equal(t, "video processing is unavailable", ve.Message)
+	var n int64
+	require.NoError(t, e.db.Model(&models.Moment{}).Count(&n).Error)
+	assert.Equal(t, int64(0), n)
+}
+
+// semStore records whether the image semaphore was held when Open ran.
+type semStore struct {
+	*storage.MemoryStore
+	svc      *MomentService
+	heldOnOp int
+}
+
+func (s *semStore) Open(ctx context.Context, key string) (io.ReadCloser, int64, error) {
+	s.heldOnOp = len(s.svc.imageSem)
+	return s.MemoryStore.Open(ctx, key)
+}
+
+func TestComplete_HoldsSemaphoreBeforeOpeningRawObject(t *testing.T) {
+	e := newMomentEnv(t)
+	ss := &semStore{MemoryStore: e.store, svc: e.svc}
+	e.svc.Store = ss
+	e.user("alice")
+	j := e.journey("alice", true, "")
+	d := e.day(j)
+	id := e.start("alice", j, photoIn(d.ID))
+	e.store.PutRaw(storage.RawKey(j.ID, id), jpegWithExif(t))
+	_, err := e.svc.Complete(context.Background(), "alice", j.Slug, id)
+	require.NoError(t, err)
+	assert.Equal(t, 1, ss.heldOnOp)
 }
