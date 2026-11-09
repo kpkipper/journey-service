@@ -160,7 +160,7 @@ func (s *UserService) UpdateProfile(ctx context.Context, userID string, in model
 		if err := s.repo.SetFollowApproval(ctx, u.ID, on); err != nil {
 			return nil, err
 		}
-		if u.FollowApproval && !on && s.follows != nil {
+		if !on && s.follows != nil {
 			var skip map[string]bool
 			if s.blocks != nil {
 				if skip, err = s.blocks.RelatedIDs(ctx, u.ID); err != nil {

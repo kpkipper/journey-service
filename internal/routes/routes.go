@@ -35,6 +35,11 @@ func Register(app *fiber.App, j *handlers.JourneyHandler, a *handlers.AuthHandle
 	v1.Get("/me/journeys", requireAuth, m.MyJourneys)
 	v1.Get("/me/moments", requireAuth, mo.Mine)
 	v1.Get("/me/blocks", requireAuth, bl.List)
+	v1.Get("/me/follow-requests", requireAuth, f.Requests)
+	v1.Post("/me/follow-requests/:username/accept", requireAuth, f.Accept)
+	v1.Delete("/me/follow-requests/:username", requireAuth, f.Decline)
+	v1.Get("/me/followers", requireAuth, f.Followers)
+	v1.Delete("/me/followers/:username", requireAuth, f.RemoveFollower)
 	v1.Post("/invites/join", requireAuth, m.JoinByLink)
 
 	v1.Patch("/moments/:id", requireAuth, mo.UpdateCaption)

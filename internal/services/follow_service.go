@@ -95,6 +95,9 @@ func (s *FollowService) Follow(ctx context.Context, followerID, username string)
 		if err := s.follows.Follow(ctx, followerID, u.ID); err != nil {
 			return FollowState{}, err
 		}
+		if err := s.follows.CancelRequest(ctx, followerID, u.ID); err != nil { // stale request
+			return FollowState{}, err
+		}
 		return s.state(ctx, u.ID, FollowState{IsFollowing: true})
 	}
 	has, err := s.follows.HasRequest(ctx, followerID, u.ID)

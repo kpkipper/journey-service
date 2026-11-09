@@ -118,7 +118,7 @@ func TestFollow_Requests(t *testing.T) {
 	})
 
 	t.Run("outgoing cap of 200", func(t *testing.T) {
-		for i := 0; i < 199; i++ { // bob has 0 pending now; add 199 ghost targets
+		for i := 0; i < 199; i++ { // kmem has 0 pending now; add 199 ghost targets
 			require.NoError(t, f.follows.Request(ctx, "kmem", fmt.Sprintf("g%d", i)))
 		}
 		_, err := svc.Follow(ctx, "kmem", "alice") // 200th
@@ -178,4 +178,34 @@ func TestProfile_FollowFields(t *testing.T) {
 	assert.False(t, p.IsFollowing)
 	p, _ = f.svc.Get(ctx, "str", "alice")
 	assert.False(t, p.FollowRequested)
+}
+
+func TestUpdateProfile_FollowApprovalOffClearsStaleRequests(t *testing.T) {
+	ctx := context.Background()
+	f := newProfileFixture(t)
+	repo := repository.NewUserRepository(f.db)
+	svc := NewUserService(repo).WithBlocks(repository.NewBlockRepository(f.db)).WithFollows(f.follows)
+	off := false
+	// approval is already off (flag false), but a request slipped in
+	require.NoError(t, repo.SetFollowApproval(ctx, "alice", false))
+	require.NoError(t, f.follows.Request(ctx, "bob", "alice"))
+	_, err := svc.UpdateProfile(ctx, "alice", models.ProfileUpdate{FollowApproval: &off})
+	require.NoError(t, err)
+	ok, _ := f.follows.IsFollowing(ctx, "bob", "alice")
+	assert.True(t, ok)
+	n, _ := f.follows.CountRequests(ctx, "alice")
+	assert.Zero(t, n)
+}
+
+func TestFollow_InstantFollowClearsStaleRequest(t *testing.T) {
+	ctx := context.Background()
+	f := newProfileFixture(t)
+	svc := NewFollowService(repository.NewUserRepository(f.db), f.follows)
+	require.NoError(t, repository.NewUserRepository(f.db).SetFollowApproval(ctx, "alice", false))
+	require.NoError(t, f.follows.Request(ctx, "bob", "alice"))
+	st, err := svc.Follow(ctx, "bob", "alice")
+	require.NoError(t, err)
+	assert.True(t, st.IsFollowing)
+	has, _ := f.follows.HasRequest(ctx, "bob", "alice")
+	assert.False(t, has)
 }

@@ -304,12 +304,17 @@ A trip the viewer may not see answers **`404 journey not found`** on every route
 
 ## Profile and Follow
 
-Following is instant (no approval) and one-way. You cannot follow yourself.
+Following is one-way. You cannot follow yourself. By default a user **approves followers** (`follow_approval: true`): following them creates a pending request, and a pending requester is not a follower (they see what a stranger sees) until the user accepts. A user can turn it off with `PATCH /me {"follow_approval": false}`; pending requests are then accepted (except from block-related users) and later follows are instant.
 
 | Method + path | Auth | Success |
 | ------------- | ---- | ------- |
-| `POST /users/:username/follow` | yes | `200 {"is_following": true, "followers": n}`; following twice is fine |
-| `DELETE /users/:username/follow` | yes | `200 {"is_following": false, "followers": n}`; unfollowing twice is fine |
+| `POST /users/:username/follow` | yes | `200 {"is_following", "requested", "followers"}`; `requested: true` when approval is on; repeating is fine; `429` after 200 outgoing pending requests |
+| `DELETE /users/:username/follow` | yes | `200 {"is_following": false, "requested": false, "followers": n}`; also cancels a pending request |
+| `GET /me/follow-requests` | yes | `200 {"items": [{"user", "created_at"}], "count": n}`, newest first |
+| `POST /me/follow-requests/:username/accept` | yes | `200 {"accepted": true}`; `404` if no such request (or block-related) |
+| `DELETE /me/follow-requests/:username` | yes | `200 {"declined": true}`; idempotent |
+| `GET /me/followers` | yes | `200 {"items": [{"user", "created_at"}]}`, newest first |
+| `DELETE /me/followers/:username` | yes | `200 {"removed": true}`; idempotent |
 | `GET /users/:username/profile` | optional | `200` profile page, as the viewer may see it |
 
 Errors: `400 cannot follow yourself`, `401` without a token on follow/unfollow, `404 user not found` for an unknown username.
@@ -321,6 +326,8 @@ The profile shows the trips the user owns or has **joined** (not pending invites
   "user": {"username", "display_name", "avatar_url", "bio"},
   "followers": 12, "following": 3,
   "is_following": true,
+  "follow_requested": false,
+  "follow_approval": true,
   "is_blocked": false,
   "now": { ...trip, "live": {...} },
   "upcoming": [ ...trips ],
@@ -331,6 +338,7 @@ The profile shows the trips the user owns or has **joined** (not pending invites
 ```
 
 - `is_following` — the viewer follows this user (`false` without a token).
+- `follow_requested` — the viewer has a pending request to follow this user. `follow_approval` — this user approves new followers.
 - `is_blocked` — the viewer has blocked this user. When `true` the page is empty (`now: null`, `upcoming`/`calendar`/`past` empty, stats 0) so the viewer can unblock. A user blocked by the profile owner gets `404` instead.
 - `now` — a trip the viewer may see live (see [Privacy](#privacy)); `null` otherwise. It is not repeated in `upcoming`.
 - `upcoming` — trips whose status for the viewer is `planning` or `upcoming` (for strangers this includes trips that are actually underway), nearest departure first; newest created first if any of them is redacted.
