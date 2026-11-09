@@ -15,4 +15,6 @@ type UserRepository interface {
 	GetByGoogleSub(ctx context.Context, sub string) (*models.User, error)
 	GetByUsername(ctx context.Context, username string) (*models.User, error)
 	Update(ctx context.Context, u *models.User) error
+	// SetFollowApproval writes the flag explicitly so false is not skipped.
+	SetFollowApproval(ctx context.Context, userID string, on bool) error
 }

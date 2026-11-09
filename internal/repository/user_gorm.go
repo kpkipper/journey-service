@@ -60,3 +60,8 @@ func (r *userGorm) GetByUsername(ctx context.Context, username string) (*models.
 func (r *userGorm) Update(ctx context.Context, u *models.User) error {
 	return r.db.WithContext(ctx).Save(u).Error
 }
+
+func (r *userGorm) SetFollowApproval(ctx context.Context, userID string, on bool) error {
+	return r.db.WithContext(ctx).Model(&models.User{}).Where("id = ?", userID).
+		Update("follow_approval", on).Error
+}

@@ -98,3 +98,25 @@ func TestBlockRepository_ListBlockedNewestFirst(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, list)
 }
+
+func TestBlockRepository_BlockAndUnfollowDeletesRequestsBothWays(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	blocks := NewBlockRepository(db)
+	follows := NewFollowRepository(db)
+	ctx := context.Background()
+
+	require.NoError(t, follows.Request(ctx, "u1", "u2"))
+	require.NoError(t, follows.Request(ctx, "u2", "u1"))
+	require.NoError(t, follows.Request(ctx, "u3", "u1"))
+
+	require.NoError(t, blocks.BlockAndUnfollow(ctx, "u1", "u2"))
+
+	for _, p := range [][2]string{{"u1", "u2"}, {"u2", "u1"}} {
+		has, err := follows.HasRequest(ctx, p[0], p[1])
+		require.NoError(t, err)
+		assert.False(t, has)
+	}
+	has, err := follows.HasRequest(ctx, "u3", "u1")
+	require.NoError(t, err)
+	assert.True(t, has)
+}

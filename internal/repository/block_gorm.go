@@ -34,6 +34,10 @@ func (r *blockGorm) BlockAndUnfollow(ctx context.Context, blockerID, blockedID s
 			blockerID, blockedID, blockedID, blockerID).Delete(&models.Follow{}).Error; err != nil {
 			return err
 		}
+		if err := tx.Where("(requester_id = ? AND target_id = ?) OR (requester_id = ? AND target_id = ?)",
+			blockerID, blockedID, blockedID, blockerID).Delete(&models.FollowRequest{}).Error; err != nil {
+			return err
+		}
 		// Pending invites between the two (in trips either owns, or sent by the
 		// other) die with the block; joined memberships stay.
 		owned := tx.Model(&models.Journey{}).Select("id").Where("owner_id = ?", blockerID)

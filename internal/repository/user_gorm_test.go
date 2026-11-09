@@ -85,3 +85,22 @@ func TestUserRepository_GetByIDs(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, none)
 }
+
+func TestUserRepository_FollowApprovalDefaultsTrueAndPersistsFalse(t *testing.T) {
+	repo := NewUserRepository(testutil.NewTestDB(t))
+	ctx := context.Background()
+	u := &models.User{Email: "a@x.com", Username: "alice"}
+	require.NoError(t, repo.Create(ctx, u))
+	got, err := repo.GetByID(ctx, u.ID)
+	require.NoError(t, err)
+	assert.True(t, got.FollowApproval)
+
+	require.NoError(t, repo.SetFollowApproval(ctx, u.ID, false))
+	got, err = repo.GetByID(ctx, u.ID)
+	require.NoError(t, err)
+	assert.False(t, got.FollowApproval)
+
+	require.NoError(t, repo.SetFollowApproval(ctx, u.ID, true))
+	got, _ = repo.GetByID(ctx, u.ID)
+	assert.True(t, got.FollowApproval)
+}
