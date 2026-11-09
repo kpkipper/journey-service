@@ -62,7 +62,7 @@ Authorization: Bearer <token>
 | POST   | `/api/v1/auth/logout`          | yes  | revoke the current session                                |
 | GET    | `/api/v1/me`                   | yes  | current user                                              |
 | PATCH  | `/api/v1/me`                   | yes  | update `username`, `display_name`, `bio`, `avatar_url` (https, max 2048 bytes) |
-| GET    | `/api/v1/users/:username`      | no   | public profile (no email)                                 |
+| GET    | `/api/v1/users/:username`      | optional | public profile (no email); `404` if the viewer is block-related |
 
 Journeys have an owner (`owner_id`, set from the logged-in user on create). Creating, updating and deleting a journey requires login; only the owner may update or delete it (`403 forbidden` if the trip is visible to the caller but they are not the owner, `404` if the trip is hidden from them). Who may read a journey, and how much of it, follows the [Privacy](#privacy) rules. Journeys created before login existed have an empty `owner_id` and are read-only; to hand them to a user run `./server assign-legacy-owner <username>` (see [Claiming existing trips](#claiming-existing-trips)).
 
@@ -321,6 +321,7 @@ The profile shows the trips the user owns or has **joined** (not pending invites
   "user": {"username", "display_name", "avatar_url", "bio"},
   "followers": 12, "following": 3,
   "is_following": true,
+  "is_blocked": false,
   "now": { ...trip, "live": {...} },
   "upcoming": [ ...trips ],
   "calendar": [ {"slug", "title", "destination", "country", "departure_date", "return_date", "month_start", "month_end", "companions": [ ...users ]} ],
@@ -330,6 +331,7 @@ The profile shows the trips the user owns or has **joined** (not pending invites
 ```
 
 - `is_following` — the viewer follows this user (`false` without a token).
+- `is_blocked` — the viewer has blocked this user. When `true` the page is empty (`now: null`, `upcoming`/`calendar`/`past` empty, stats 0) so the viewer can unblock. A user blocked by the profile owner gets `404` instead.
 - `now` — a trip the viewer may see live (see [Privacy](#privacy)); `null` otherwise. It is not repeated in `upcoming`.
 - `upcoming` — trips whose status for the viewer is `planning` or `upcoming` (for strangers this includes trips that are actually underway), nearest departure first; newest created first if any of them is redacted.
 - `past` — completed trips, latest return first.
@@ -342,7 +344,21 @@ The profile shows the trips the user owns or has **joined** (not pending invites
 
 `GET /feed?before=&limit=` (login required) lists events derived on read from trips the viewer may see: those of people they follow, plus trips they own or joined. Event types: `trip_planned`, `trip_started`, `trip_completed`, `moments_added` (one item per uploader, trip day and local date). Newest first; `limit` must be an integer (default 20, max 50, otherwise `400`); `next_before` is an opaque cursor to pass as `before` (malformed cursor is `400`). Item ids are stable and do not contain usernames.
 
-`GET /feed/now` (login required) returns `{"travelers": [...]}`: followed people currently on a trip the viewer may see as live, one per person, with `day_number` and `total_days`.
+Page shape: `{"items": [...], "next_before": "<opaque cursor>" | null}`. Item shape:
+
+```
+{
+  "id": "trip_started:<trip id>", "type": "trip_started", "at": "2026-12-10T00:00:00+07:00",
+  "actor": {"username", "display_name", "avatar_url", "bio"},
+  "trip": {"slug", "title", "destination", "country", "cover_url", "departure_date"?, "return_date"?},
+  "companions": [ ...users, at most 5 ],
+  "moments": {"count": 3, "day_id": "...", "day_title": "...", "thumbs": ["url", ...]}   // moments_added only
+}
+```
+
+`trip_started` / `trip_completed` are only emitted for trips with both dates set. A `moments_added` group's `at` is the time of its newest moment, so it can move forward (and the item reappears near the top on refresh) as new moments arrive. Users who are block-related to the viewer never appear as actor or companion.
+
+`GET /feed/now` (login required) returns `{"travelers": [{"user": {...}, "trip": {...same trip shape...}, "day_number": 2, "total_days": 5}]}`: followed people currently on a trip the viewer may see as live, one per person.
 
 ## Block
 

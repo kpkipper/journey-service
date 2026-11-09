@@ -185,7 +185,7 @@ func main() {
 	}
 }
 
-// startMomentCleanup removes uploads left pending for over an hour, every 30 minutes.
+// isAdminCommand reports whether c is an admin CLI subcommand.
 func isAdminCommand(c string) bool {
 	switch c {
 	case "assign-legacy-owner", "reports", "resolve-report", "delete-moment":
@@ -194,6 +194,7 @@ func isAdminCommand(c string) bool {
 	return false
 }
 
+// startMomentCleanup removes uploads left pending for over an hour, every 30 minutes.
 func startMomentCleanup(db *gorm.DB, store storage.Store, video media.VideoProcessor) {
 	svc := services.NewMomentService(services.MomentDeps{
 		Access:  services.NewAccessService(repository.NewJourneyRepository(db), repository.NewMemberRepository(db)),
