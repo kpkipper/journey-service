@@ -141,3 +141,12 @@ func (r *memberGorm) ListInviteLinks(ctx context.Context, journeyID string) ([]m
 		Find(&out).Error
 	return out, err
 }
+
+func (r *memberGorm) ListJoinedByUsers(ctx context.Context, userIDs []string) ([]models.JourneyMember, error) {
+	if len(userIDs) == 0 {
+		return nil, nil
+	}
+	var rows []models.JourneyMember
+	err := r.db.WithContext(ctx).Where("user_id IN ? AND status = ?", userIDs, models.StatusJoined).Find(&rows).Error
+	return rows, err
+}

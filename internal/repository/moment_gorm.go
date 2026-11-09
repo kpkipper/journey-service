@@ -90,6 +90,13 @@ func (r *momentGorm) ListReadyByJourney(ctx context.Context, journeyID string) (
 	return r.find(ctx, "created_at, id", "journey_id = ? AND status = ?", journeyID, models.MomentReady)
 }
 
+func (r *momentGorm) ListReadyByJourneys(ctx context.Context, ids []string) ([]models.Moment, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	return r.find(ctx, "created_at, id", "journey_id IN ? AND status = ?", ids, models.MomentReady)
+}
+
 func (r *momentGorm) ListByUploader(ctx context.Context, userID string) ([]models.Moment, error) {
 	return r.find(ctx, "created_at DESC, id DESC", "uploader_id = ? AND status = ?", userID, models.MomentReady)
 }

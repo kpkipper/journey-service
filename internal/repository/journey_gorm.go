@@ -112,3 +112,15 @@ func (r *journeyGorm) ListByIDs(ctx context.Context, ids []string) ([]models.Jou
 	err := r.db.WithContext(ctx).Where("id IN ?", ids).Find(&journeys).Error
 	return journeys, err
 }
+
+func (r *journeyGorm) ListByOwners(ctx context.Context, ownerIDs []string, limit int) ([]models.Journey, error) {
+	if len(ownerIDs) == 0 {
+		return nil, nil
+	}
+	var journeys []models.Journey
+	q := r.db.WithContext(ctx).Where("owner_id IN ?", ownerIDs).Order("created_at DESC, id DESC")
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	return journeys, q.Find(&journeys).Error
+}

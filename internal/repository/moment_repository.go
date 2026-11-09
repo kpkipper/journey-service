@@ -20,6 +20,8 @@ type MomentRepository interface {
 	UpdateCaption(ctx context.Context, id, caption string) error
 	Delete(ctx context.Context, id string) error
 	ListReadyByJourney(ctx context.Context, journeyID string) ([]models.Moment, error)
+	// ListReadyByJourneys returns the ready moments of all the journeys, oldest first.
+	ListReadyByJourneys(ctx context.Context, ids []string) ([]models.Moment, error)
 	ListByUploader(ctx context.Context, userID string) ([]models.Moment, error)
 	CountByJourney(ctx context.Context, journeyID string) (int64, error)
 	CountByDay(ctx context.Context, dayID string) (int64, error)

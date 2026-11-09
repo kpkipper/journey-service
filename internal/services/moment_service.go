@@ -519,6 +519,22 @@ func (s *MomentService) List(ctx context.Context, viewerID, slug string) ([]Mome
 	if err != nil {
 		return nil, err
 	}
+	if v.Redacted {
+		return []MomentView{}, nil
+	}
+	ms, err := s.Moments.ListReadyByJourney(ctx, v.ID)
+	if err != nil {
+		return nil, err
+	}
+	return s.visibleMoments(ctx, viewerID, v, ms)
+}
+
+// visibleMoments applies the one rule set for which of a trip's moments a
+// viewer may see (shared by List and the feed): ready only, on a day the view
+// shows, plans hidden from non-members dropped, members-only dropped for
+// non-members, uploaders block-related to the viewer dropped. Views are built
+// with the uploaders loaded in one query. A redacted view yields nothing.
+func (s *MomentService) visibleMoments(ctx context.Context, viewerID string, v *JourneyView, ms []models.Moment) ([]MomentView, error) {
 	out := []MomentView{}
 	if v.Redacted {
 		return out, nil
@@ -531,20 +547,11 @@ func (s *MomentService) List(ctx context.Context, viewerID, slug string) ([]Mome
 			visiblePlan[p.ID] = true
 		}
 	}
-	ms, err := s.Moments.ListReadyByJourney(ctx, v.ID)
+	ms, err := s.WithoutBlockedUploaders(ctx, viewerID, ms)
 	if err != nil {
 		return nil, err
 	}
-	ms, err = s.WithoutBlockedUploaders(ctx, viewerID, ms)
-	if err != nil {
-		return nil, err
-	}
-	ownerID := ""
-	if j, err := s.Access.journeys.GetByID(ctx, v.ID); err != nil {
-		return nil, err
-	} else if j != nil {
-		ownerID = j.OwnerID
-	}
+	isOwner := v.Role == models.RoleOwner
 	type kept struct {
 		m         models.Moment
 		planID    string
@@ -568,7 +575,7 @@ func (s *MomentService) List(ctx context.Context, viewerID, slug string) ([]Mome
 			// (e.g. after a failed DetachPlan): show it as a day-level moment.
 			planID = ""
 		}
-		canDelete := viewerID != "" && (m.UploaderID == viewerID || (ownerID != "" && ownerID == viewerID))
+		canDelete := viewerID != "" && (m.UploaderID == viewerID || isOwner)
 		keep = append(keep, kept{*m, planID, canDelete})
 	}
 	shown := make([]models.Moment, len(keep))

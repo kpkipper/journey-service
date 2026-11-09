@@ -13,7 +13,8 @@ type Status struct {
 	TotalDays int    `json:"total_days"` // upcoming/ongoing/completed: return - departure + 1
 }
 
-func loadLocation(tz string) *time.Location {
+// Location resolves a trip timezone, falling back to Asia/Bangkok (then UTC) when tz is empty or invalid.
+func Location(tz string) *time.Location {
 	if loc, err := time.LoadLocation(tz); err == nil && tz != "" {
 		return loc
 	}
@@ -45,7 +46,7 @@ func Compute(departure, ret time.Time, tz string, isDraft bool, now time.Time) S
 	if end.Before(dep) {
 		end = dep
 	}
-	today := calendarDay(now.In(loadLocation(tz)))
+	today := calendarDay(now.In(Location(tz)))
 	total := daysBetween(dep, end) + 1
 
 	switch {

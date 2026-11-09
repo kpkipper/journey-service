@@ -16,6 +16,8 @@ type JourneyRepository interface {
 	ListByOwner(ctx context.Context, ownerID string) ([]models.Journey, error)
 	// ListByIDs returns the journeys with the given IDs (no itinerary preloaded).
 	ListByIDs(ctx context.Context, ids []string) ([]models.Journey, error)
+	// ListByOwners returns up to limit journeys of the given owners, newest created first (no itinerary preloaded).
+	ListByOwners(ctx context.Context, ownerIDs []string, limit int) ([]models.Journey, error)
 	Update(ctx context.Context, journey *models.Journey) error
 	Delete(ctx context.Context, slug string) error
 }

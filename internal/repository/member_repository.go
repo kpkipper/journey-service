@@ -21,6 +21,8 @@ type MemberRepository interface {
 	ListByJourney(ctx context.Context, journeyID string) ([]models.MemberView, error)
 	ListInvitesForUser(ctx context.Context, userID string) ([]models.JourneyMember, error)
 	ListJourneyIDsForUser(ctx context.Context, userID string) ([]string, error)
+	// ListJoinedByUsers returns the joined (not invited) membership rows of the users.
+	ListJoinedByUsers(ctx context.Context, userIDs []string) ([]models.JourneyMember, error)
 	// CountActive counts invited + joined rows.
 	CountActive(ctx context.Context, journeyID string) (int64, error)
 	CreateInviteLink(ctx context.Context, l *models.InviteLink) error
