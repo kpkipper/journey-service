@@ -180,7 +180,7 @@ Login is optional; what the response contains depends on the viewer (see [Privac
 
 - always: `id`, `slug`, `title`, `destination`, `country`, `cover_url`, `visibility`, `status` (`{state, days_until, day_number, total_days}`), `role` (the viewer's role: `owner`, `editor`, `traveler` or empty), `redacted`, and `owner` (`username, display_name, avatar_url, bio`; absent for trips created before login existed, which are shown as `public`).
 - when `redacted` is `false`: also `month_start`/`month_end` (`YYYY-MM`), `departure_date`, `return_date`, `updated_at`, `itinerary_days` (all days with their plans; hidden plans only for members) and `members` (the owner and every joined member: `username`, `display_name`, `avatar_url`, `role`, `status`; pending invites are not listed), and `live` while the trip is on now.
-- **members only** (`role` is `owner`, `editor` or `traveler`): `settings` (`{is_draft, timezone, hide_live_status, editors_can_invite}`). Absent for followers and strangers, who must not learn the owner's draft state or live-status choice.
+- **members only** (`role` is `owner`, `editor` or `traveler`): `settings` (`{is_draft, timezone, hide_live_status, editors_can_invite, members_can_post}`). Absent for followers and strangers, who must not learn the owner's draft state or live-status choice.
 - **Strangers** (not a member, not a follower) get `redacted: true` until the trip is completed: only the "always" fields, with `status` just `planning` or `upcoming` (counters `0`) and no dates, days, members or `live`. After completion they see the full view like followers.
 
 ---
@@ -207,7 +207,7 @@ Updates only `title`, `destination`, `country`, `departure_date` and `return_dat
 DELETE /journeys/:slug
 ```
 
-Requires login; owner only. Returns `404` if the journey does not exist.
+Requires login; owner only. Returns `404` if the journey does not exist. All of the trip's [moments](#moments) and their files are removed with it.
 
 **Response:** `200 OK`
 
@@ -227,7 +227,7 @@ A trip has one **owner** (`journeys.owner_id`) and up to 19 other people (owner 
 
 | Role | Can do |
 | ---- | ------ |
-| owner | everything: edit, invite editors and travelers, change roles, remove members, manage and revoke invite links, change `editors_can_invite`, delete the trip |
+| owner | everything: edit, invite editors and travelers, change roles, remove members, manage and revoke invite links, change `editors_can_invite` and `members_can_post`, delete the trip |
 | editor | edit the itinerary and journey fields; invite travelers (only if `editors_can_invite` is on); leave |
 | traveler | read the members list; leave |
 | invited / outsider | nothing beyond the read they are allowed by [Privacy](#privacy) (`404` if the trip is hidden from them, `403` on member endpoints if they can see it) |
@@ -262,16 +262,16 @@ Owner and editors can change a trip piece by piece; travelers and other viewers 
 
 | Method + path | Body | Success |
 | ------------- | ---- | ------- |
-| `PATCH /journeys/:slug` | any of `title, destination, country, cover_url, departure_date, return_date, editors_can_invite, visibility, is_draft, timezone, hide_live_status` (`editors_can_invite`, `visibility`, `hide_live_status`: owner only) | `200` journey |
+| `PATCH /journeys/:slug` | any of `title, destination, country, cover_url, departure_date, return_date, editors_can_invite, members_can_post, visibility, is_draft, timezone, hide_live_status` (`editors_can_invite`, `members_can_post`, `visibility`, `hide_live_status`: owner only) | `200` journey |
 | `POST /journeys/:slug/days` | `{"date","date_iso","title"}` (`date`, `date_iso` required) | `201` day |
 | `PATCH /journeys/:slug/days/:dayId` | any of `date, date_iso, title` | `200` day |
-| `DELETE /journeys/:slug/days/:dayId` | – | `200 {}` (deletes its plans) |
+| `DELETE /journeys/:slug/days/:dayId` | – | `200 {}` (deletes its plans); `409 day has moments` if the day or any of its plans has [moments](#moments) |
 | `POST /journeys/:slug/days/:dayId/plans` | `{"description","time","emoji","map_url"}` (`description` required) | `201` plan, appended last |
 | `PUT /journeys/:slug/days/:dayId/plans/order` | `{"plan_ids":[...]}` (exactly the day's plans) | `200 {}` |
 | `PATCH /journeys/:slug/plans/:planId` | any of `time, description, emoji, map_url, category, hidden_from_public, day_id` (`day_id` moves it to another day of the same trip, last position) | `200` plan |
 | `DELETE /journeys/:slug/plans/:planId` | – | `200 {}` |
 
-Rules: only the owner may change `editors_can_invite`; `cover_url` must be `https://` with a host and at most 2048 bytes; `map_url` must be an `http`/`https` URL with a host and at most 2048 bytes (a scheme-less value such as `maps.app.goo.gl/x` gets `https://` prefixed; other schemes are rejected, and errors on a full create/PUT name the position, e.g. `day 2, plan 3: invalid map_url`); `return_date` may not be before `departure_date`. A day or plan that belongs to another trip is `404` even if its ID exists. `PUT /journeys/:slug/update` is owner-only and replaces all days and plans with fresh IDs; `cover_url` and `editors_can_invite` are PATCH-only. Invite links stop working when their creator can no longer invite (removed, demoted, or `editors_can_invite` turned off).
+Rules: only the owner may change `editors_can_invite` and `members_can_post`; `cover_url` must be `https://` with a host and at most 2048 bytes; `map_url` must be an `http`/`https` URL with a host and at most 2048 bytes (a scheme-less value such as `maps.app.goo.gl/x` gets `https://` prefixed; other schemes are rejected, and errors on a full create/PUT name the position, e.g. `day 2, plan 3: invalid map_url`); `return_date` may not be before `departure_date`. A day or plan that belongs to another trip is `404` even if its ID exists. `PUT /journeys/:slug/update` is owner-only and replaces all days and plans with fresh IDs; `cover_url`, `editors_can_invite` and `members_can_post` are PATCH-only. Invite links stop working when their creator can no longer invite (removed, demoted, or `editors_can_invite` turned off).
 
 ---
 
@@ -340,7 +340,7 @@ The profile shows the trips the user owns or has **joined** (not pending invites
 
 ## Moments
 
-Photos (jpeg, png, webp, up to 10 MB) and short videos (mp4, mov, up to 100 MB and 60 s) attached to a trip day or plan. Files never pass through the API on upload: the client asks for a signed URL, uploads straight to storage, then completes the moment. The server strips metadata (EXIF/GPS), re-encodes and makes a thumbnail; raw files are never served. Signed upload URLs last 15 minutes and view URLs 1 hour. Uploads left pending for over an hour are cleaned up every 30 minutes.
+Photos (jpeg, png, webp, up to 10 MB) and short videos (mp4, mov, up to 100 MB and 60 s) attached to a trip day or plan. Files never pass through the API on upload: the client asks for a signed URL, uploads straight to storage, then completes the moment. The server strips metadata (EXIF/GPS), re-encodes and makes a thumbnail; raw files are never served. Signed upload URLs last 15 minutes and view URLs 30 to 90 minutes (they expire on the hour and are identical within an hour, so clients can cache them). Uploads left pending for over an hour are cleaned up every 30 minutes.
 
 | Endpoint | Auth | Description |
 | -------- | ---- | ----------- |
@@ -376,6 +376,15 @@ gcloud storage buckets update gs://<bucket> --cors-file=cors.json
 ```
 
 5. Set the Firebase Storage rules to deny everything, since all access goes through signed URLs: `allow read, write: if false;`.
+6. Add a lifecycle rule that deletes `uploads/` objects older than 1 day. Raw uploads are normally deleted when a moment is completed or cleaned up, but a client that uploads and never completes (or a failed cleanup) would otherwise leave orphaned raw files behind. Save as `lifecycle.json` and apply it:
+
+```json
+{"rule":[{"action":{"type":"Delete"},"condition":{"age":1,"matchesPrefix":["uploads/"]}}]}
+```
+
+```bash
+gcloud storage buckets update gs://<bucket> --lifecycle-file=lifecycle.json
+```
 
 For local development `STORAGE_DRIVER=local` (the default when `APP_ENV` is `development` or `test`) stores files under `./.data/media` and serves them from `/api/v1/media/local/*`. It is refused in any other `APP_ENV`.
 
@@ -474,9 +483,23 @@ cp .env.example .env
 
 Set these on the deployed service: `APP_ENV=production`, `STORAGE_DRIVER=firebase` with `FIREBASE_STORAGE_BUCKET` and `FIREBASE_SERVICE_ACCOUNT_JSON` (see [Moments / Firebase Storage](#moments--firebase-storage)), `APP_WEB_URL` (absolute http(s) URL), `GOOGLE_CLIENT_ID`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, and `POSTGRES_*`. The service refuses to start unless `APP_ENV` is `development` or `test` when `SMTP_HOST` is empty (the log mailer prints login links), and refuses to start with SMTP if `APP_WEB_URL` is not an absolute http(s) URL.
 
-Set these once on the Cloud Run service (console, or `gcloud run services update journey-service --update-env-vars ...`; prefer Secret Manager for `POSTGRES_PASSWORD` and `SMTP_PASSWORD`). `make deploy.run` uses `--update-env-vars`, so it keeps them on every deploy.
+The service runs on **Railway** (Docker image from the `Dockerfile`, which includes `ffmpeg`/`ffprobe`). Set the variables above once in the Railway service's Variables tab; Railway keeps them across deploys. Before the first deploy of the Moments release, make sure at least these are set:
+
+| Variable | Value |
+| -------- | ----- |
+| `APP_ENV` | `production` |
+| `STORAGE_DRIVER` | `firebase` |
+| `FIREBASE_STORAGE_BUCKET` | your bucket name |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | the service-account key, base64-encoded |
+| `APP_WEB_URL`, `GOOGLE_CLIENT_ID`, `SMTP_*`, `POSTGRES_*` | as above |
+
+Use base64 for `FIREBASE_SERVICE_ACCOUNT_JSON` on Railway: the key's `private_key` contains newlines and quotes that are easy to mangle in a variables editor. Encode it with `base64 < key.json | tr -d '\n'` (the server accepts raw JSON or base64).
+
+**Alternative: Cloud Run.** Set the same variables on the Cloud Run service (console, or `gcloud run services update journey-service --update-env-vars ...`; prefer Secret Manager for `POSTGRES_PASSWORD`, `SMTP_PASSWORD` and the service-account key). `make deploy.run` uses `--update-env-vars`, so it keeps them on every deploy.
 
 **Breaking change:** creating, updating and deleting journeys now requires `Authorization: Bearer <token>`. Existing journeys created before login existed have no owner and are read-only.
+
+**Breaking change for deploy:** outside `APP_ENV=development`/`test` the server now refuses to start unless `STORAGE_DRIVER=firebase` and both `FIREBASE_STORAGE_BUCKET` and `FIREBASE_SERVICE_ACCOUNT_JSON` are set (and the credentials are usable). Set the Railway variables listed above before deploying this release, or the new deployment will crash on boot.
 
 ### Claiming existing trips
 
