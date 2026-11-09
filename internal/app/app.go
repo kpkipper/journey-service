@@ -74,7 +74,7 @@ func New(d Deps) *fiber.App {
 	profileSvc := services.NewProfileService(services.ProfileDeps{
 		Users: userRepo, Journeys: journeyRepo, Members: memberRepo, Follows: followRepo, Blocks: blockRepo, Privacy: privacySvc,
 	})
-	blockSvc := services.NewBlockService(userRepo, blockRepo, followRepo)
+	blockSvc := services.NewBlockService(userRepo, blockRepo)
 	reportSvc := services.NewReportService(services.ReportDeps{
 		Reports: repository.NewReportRepository(d.DB), Users: userRepo, Privacy: privacySvc,
 		Moments: momentSvc, Blocks: blockRepo, Now: d.Now,

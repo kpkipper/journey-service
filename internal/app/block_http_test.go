@@ -193,7 +193,7 @@ func TestBlock_PendingInvites(t *testing.T) {
 					}
 				} else {
 					// BlockService (no HTTP route yet) also deletes the pending invite.
-					bs := services.NewBlockService(repository.NewUserRepository(e.db), repository.NewBlockRepository(e.db), repository.NewFollowRepository(e.db))
+					bs := services.NewBlockService(repository.NewUserRepository(e.db), repository.NewBlockRepository(e.db))
 					require.NoError(t, bs.Block(context.Background(), e.userID(t, blocker), blocked))
 					var n int64
 					require.NoError(t, e.db.Model(&models.JourneyMember{}).Where("id = ?", id).Count(&n).Error)
@@ -240,6 +240,58 @@ func TestBlock_ThirdPartyTripHidesBlockRelatedMembers(t *testing.T) {
 			assert.Contains(t, raw, "alice")
 			_, praw = e.profile(t, carol, "carol")
 			assert.Contains(t, praw, "alice")
+		})
+	}
+}
+
+// Every /journeys/:slug* route answers 404 (never 403) to a block-related non-member.
+func TestBlock_EveryTripRouteIs404ForRelatedNonMember(t *testing.T) {
+	for _, dir := range []string{"owner blocks viewer", "viewer blocks owner"} {
+		t.Run(dir, func(t *testing.T) {
+			e := newEnv(t)
+			alice := e.named(t, "alice@gmail.com", "alice")
+			bob := e.named(t, "bob@gmail.com", "bob")
+			e.named(t, "dave@gmail.com", "dave")
+			slug := e.trip(t, alice, "Trip", "public", futureDates)
+			dayID := e.addDay(t, alice, slug)
+			planID := e.addPlan(t, alice, slug, dayID, "walk")
+			if dir == "owner blocks viewer" {
+				e.block(t, alice, bob)
+			} else {
+				e.block(t, bob, alice)
+			}
+			base := api + "/journeys/" + slug
+			routes := []struct{ method, path, body string }{
+				{"GET", "", ""},
+				{"PUT", "/update", `{"title":"x","destination":"Tokyo"}`},
+				{"DELETE", "", ""},
+				{"PATCH", "", `{"title":"x"}`},
+				{"POST", "/days", `{"date":"2 Jun","date_iso":"2027-03-02T00:00:00Z","title":"Day 2"}`},
+				{"PATCH", "/days/" + dayID, `{"title":"x"}`},
+				{"DELETE", "/days/" + dayID, ""},
+				{"POST", "/days/" + dayID + "/plans", `{"description":"x"}`},
+				{"PUT", "/days/" + dayID + "/plans/order", `{"plan_ids":["` + planID + `"]}`},
+				{"PATCH", "/plans/" + planID, `{"description":"x"}`},
+				{"DELETE", "/plans/" + planID, ""},
+				{"GET", "/members", ""},
+				{"POST", "/members", `{"username":"dave","role":"traveler"}`},
+				{"PATCH", "/members/alice", `{"role":"editor"}`},
+				{"DELETE", "/members/alice", ""},
+				{"POST", "/leave", ""},
+				{"GET", "/invite-links", ""},
+				{"POST", "/invite-links", `{"role":"traveler"}`},
+				{"DELETE", "/invite-links/abc", ""},
+				{"POST", "/moments/uploads", `{"kind":"photo","content_type":"image/jpeg","size_bytes":1000,"day_id":"` + dayID + `"}`},
+				{"POST", "/moments/abc/complete", ""},
+				{"GET", "/moments", ""},
+			}
+			for _, r := range routes {
+				status, _, raw := e.do(t, r.method, base+r.path, bob, r.body)
+				assert.Equal(t, 404, status, "%s %s: %s", r.method, r.path, raw)
+			}
+			// the trip itself is untouched
+			status, _, raw := e.do(t, "GET", base, alice, "")
+			assert.Equal(t, 200, status, raw)
 		})
 	}
 }

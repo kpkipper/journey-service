@@ -10,13 +10,12 @@ import (
 // BlockService: a block is one-directional but hides both users from each
 // other, and removes follows in both directions.
 type BlockService struct {
-	users   repository.UserRepository
-	blocks  repository.BlockRepository
-	follows repository.FollowRepository
+	users  repository.UserRepository
+	blocks repository.BlockRepository
 }
 
-func NewBlockService(users repository.UserRepository, blocks repository.BlockRepository, follows repository.FollowRepository) *BlockService {
-	return &BlockService{users: users, blocks: blocks, follows: follows}
+func NewBlockService(users repository.UserRepository, blocks repository.BlockRepository) *BlockService {
+	return &BlockService{users: users, blocks: blocks}
 }
 
 func (s *BlockService) user(ctx context.Context, username string) (*models.User, error) {

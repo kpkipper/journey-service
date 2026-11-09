@@ -17,7 +17,7 @@ func TestBlockService(t *testing.T) {
 	f := newProfileFixture(t)
 	users := repository.NewUserRepository(f.db)
 	blocks := repository.NewBlockRepository(f.db)
-	bsvc := NewBlockService(users, blocks, f.follows)
+	bsvc := NewBlockService(users, blocks)
 	fsvc := NewFollowService(users, f.follows).WithBlocks(blocks)
 
 	t.Run("block removes follows both ways, idempotent", func(t *testing.T) {
@@ -66,7 +66,7 @@ func TestProfile_Blocks(t *testing.T) {
 	blocks := repository.NewBlockRepository(f.db)
 	f.svc.Blocks = blocks
 	users := repository.NewUserRepository(f.db)
-	bsvc := NewBlockService(users, blocks, f.follows)
+	bsvc := NewBlockService(users, blocks)
 	require.NoError(t, f.follows.Follow(ctx, "bob", "alice"))
 	require.NoError(t, bsvc.Block(ctx, "alice", "bob"))
 	// bob has a public trip and an ongoing one: the blocker must still see nothing.
