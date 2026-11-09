@@ -111,13 +111,124 @@ func TestProcessImage_StripsExifAndGPS(t *testing.T) {
 	}
 }
 
+// cornerJPEG is 64x32 blue with a red 16x16 block in the top-left corner.
+func cornerJPEG(t *testing.T) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 64, 32))
+	for y := 0; y < 32; y++ {
+		for x := 0; x < 64; x++ {
+			if x < 16 && y < 16 {
+				img.Set(x, y, color.RGBA{255, 0, 0, 255})
+			} else {
+				img.Set(x, y, color.RGBA{0, 0, 255, 255})
+			}
+		}
+	}
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 95}); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func isRed(c color.Color) bool {
+	r, _, b, _ := c.RGBA()
+	return r>>8 > 180 && b>>8 < 90
+}
+
 func TestProcessImage_AppliesOrientation(t *testing.T) {
-	res, err := ProcessImage(bytes.NewReader(withExif(testJPEG(t, 64, 32), 6, false)))
+	cases := []struct {
+		orientation int
+		redX, redY  int // a pixel inside where the red corner must land in the 32x64 result
+	}{
+		{6, 24, 8}, // rotate 90 CW: top-left -> top-right
+		{8, 8, 56}, // rotate 90 CCW: top-left -> bottom-left
+	}
+	for _, c := range cases {
+		res, err := ProcessImage(bytes.NewReader(withExif(cornerJPEG(t), c.orientation, false)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Width != 32 || res.Height != 64 {
+			t.Fatalf("orientation %d: got %dx%d, want 32x64", c.orientation, res.Width, res.Height)
+		}
+		img, err := jpeg.Decode(bytes.NewReader(res.Full))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !isRed(img.At(c.redX, c.redY)) {
+			t.Errorf("orientation %d: expected red at (%d,%d), got %v", c.orientation, c.redX, c.redY, img.At(c.redX, c.redY))
+		}
+		if isRed(img.At(8, 8)) && c.orientation == 6 {
+			t.Errorf("orientation 6: top-left should not be red")
+		}
+	}
+}
+
+func TestProcessImage_FlattensTransparencyOnWhite(t *testing.T) {
+	img := image.NewNRGBA(image.Rect(0, 0, 16, 16)) // fully transparent
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	res, err := ProcessImage(bytes.NewReader(buf.Bytes()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Width != 32 || res.Height != 64 {
-		t.Fatalf("got %dx%d, want 32x64", res.Width, res.Height)
+	out, err := jpeg.Decode(bytes.NewReader(res.Full))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, g, b, _ := out.At(8, 8).RGBA()
+	if r>>8 < 240 || g>>8 < 240 || b>>8 < 240 {
+		t.Fatalf("transparent pixel not white: %v", out.At(8, 8))
+	}
+}
+
+// webpVP8X builds a RIFF/WEBP with a VP8X canvas chunk and a VP8L chunk whose header
+// declares frameW x frameH. Only headers are present, so the file is tiny.
+func webpVP8X(canvasW, canvasH, frameW, frameH int) []byte {
+	vp8x := make([]byte, 10)
+	put24 := func(b []byte, v int) { b[0], b[1], b[2] = byte(v), byte(v>>8), byte(v>>16) }
+	put24(vp8x[4:], canvasW-1)
+	put24(vp8x[7:], canvasH-1)
+	vp8l := make([]byte, 5)
+	vp8l[0] = 0x2f
+	bits := uint32(frameW-1) | uint32(frameH-1)<<14
+	binary.LittleEndian.PutUint32(vp8l[1:], bits)
+
+	var body bytes.Buffer
+	body.WriteString("WEBP")
+	chunk := func(id string, data []byte) {
+		body.WriteString(id)
+		_ = binary.Write(&body, binary.LittleEndian, uint32(len(data)))
+		body.Write(data)
+		if len(data)%2 == 1 {
+			body.WriteByte(0)
+		}
+	}
+	chunk("VP8X", vp8x)
+	chunk("VP8L", vp8l)
+	var out bytes.Buffer
+	out.WriteString("RIFF")
+	_ = binary.Write(&out, binary.LittleEndian, uint32(body.Len()))
+	out.Write(body.Bytes())
+	return out.Bytes()
+}
+
+func TestProcessImage_RejectsWebPCanvasFrameMismatch(t *testing.T) {
+	// canvas says 1x1 (passes DecodeConfig) but the VP8L frame says 16384x16384.
+	// Must be rejected from headers alone, before any pixel allocation.
+	data := webpVP8X(1, 1, 16384, 16384)
+	if len(data) > 100 {
+		t.Fatalf("crafted file unexpectedly large: %d", len(data))
+	}
+	if _, err := ProcessImage(bytes.NewReader(data)); !errors.Is(err, ErrImageTooLarge) {
+		t.Fatalf("got %v, want ErrImageTooLarge", err)
+	}
+	// small frame that disagrees with canvas is unsupported
+	if _, err := ProcessImage(bytes.NewReader(webpVP8X(4, 4, 2, 2))); !errors.Is(err, ErrUnsupportedFormat) {
+		t.Fatalf("got %v, want ErrUnsupportedFormat", err)
 	}
 }
 

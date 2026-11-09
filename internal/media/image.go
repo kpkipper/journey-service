@@ -6,11 +6,16 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/color"
+	"image/draw"
 	"image/jpeg"
 	_ "image/png" // register PNG decoder
 	"io"
 
 	"github.com/disintegration/imaging"
+	"golang.org/x/image/riff"
+	"golang.org/x/image/vp8"
+	"golang.org/x/image/vp8l"
 	_ "golang.org/x/image/webp" // register WebP decoder
 )
 
@@ -49,8 +54,15 @@ func ProcessImage(r io.Reader) (*ImageResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrUnsupportedFormat, err)
 	}
-	if cfg.Width <= 0 || cfg.Height <= 0 || int64(cfg.Width)*int64(cfg.Height) > MaxImagePixels {
-		return nil, ErrImageTooLarge
+	if err := checkDims(cfg.Width, cfg.Height); err != nil {
+		return nil, err
+	}
+	if isWebP(data) {
+		// For VP8X files DecodeConfig reports the canvas size, but decoding allocates by
+		// the inner frame size, so check the real frame header too.
+		if err := checkWebPFrame(data, cfg.Width, cfg.Height); err != nil {
+			return nil, err
+		}
 	}
 	img, err := imaging.Decode(bytes.NewReader(data), imaging.AutoOrientation(true))
 	if err != nil {
@@ -77,10 +89,66 @@ func sniffImage(b []byte) bool {
 		return true
 	case bytes.HasPrefix(b, []byte("\x89PNG\r\n\x1a\n")):
 		return true
-	case len(b) >= 12 && bytes.Equal(b[:4], []byte("RIFF")) && bytes.Equal(b[8:12], []byte("WEBP")):
+	case isWebP(b):
 		return true
 	}
 	return false
+}
+
+func isWebP(b []byte) bool {
+	return len(b) >= 12 && bytes.Equal(b[:4], []byte("RIFF")) && bytes.Equal(b[8:12], []byte("WEBP"))
+}
+
+func checkDims(w, h int) error {
+	if w <= 0 || h <= 0 || int64(w)*int64(h) > MaxImagePixels {
+		return ErrImageTooLarge
+	}
+	return nil
+}
+
+// checkWebPFrame walks the RIFF chunks and validates the real VP8/VP8L frame size against
+// the pixel limit and the canvas size reported by DecodeConfig.
+func checkWebPFrame(data []byte, canvasW, canvasH int) error {
+	_, chunks, err := riff.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrUnsupportedFormat, err)
+	}
+	for {
+		id, length, body, err := chunks.Next()
+		if err == io.EOF {
+			// no still-image frame (e.g. animated WebP)
+			return fmt.Errorf("%w: no WebP frame", ErrUnsupportedFormat)
+		}
+		if err != nil {
+			return fmt.Errorf("%w: %v", ErrUnsupportedFormat, err)
+		}
+		var w, h int
+		switch id {
+		case riff.FourCC{'V', 'P', '8', ' '}:
+			d := vp8.NewDecoder()
+			d.Init(body, int(length))
+			fh, err := d.DecodeFrameHeader()
+			if err != nil {
+				return fmt.Errorf("%w: %v", ErrUnsupportedFormat, err)
+			}
+			w, h = fh.Width, fh.Height
+		case riff.FourCC{'V', 'P', '8', 'L'}:
+			c, err := vp8l.DecodeConfig(body)
+			if err != nil {
+				return fmt.Errorf("%w: %v", ErrUnsupportedFormat, err)
+			}
+			w, h = c.Width, c.Height
+		default:
+			continue
+		}
+		if err := checkDims(w, h); err != nil {
+			return err
+		}
+		if w != canvasW || h != canvasH {
+			return fmt.Errorf("%w: WebP frame size differs from canvas", ErrUnsupportedFormat)
+		}
+		return nil
+	}
 }
 
 func fitWithin(img image.Image, maxEdge int) image.Image {
@@ -92,8 +160,12 @@ func fitWithin(img image.Image, maxEdge int) image.Image {
 }
 
 func encodeJPEG(img image.Image, quality int) ([]byte, error) {
+	// JPEG has no alpha: flatten onto white so transparent pixels do not turn black.
+	flat := image.NewRGBA(img.Bounds())
+	draw.Draw(flat, flat.Bounds(), image.NewUniform(color.White), image.Point{}, draw.Src)
+	draw.Draw(flat, flat.Bounds(), img, img.Bounds().Min, draw.Over)
 	var buf bytes.Buffer
-	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: quality}); err != nil {
+	if err := jpeg.Encode(&buf, flat, &jpeg.Options{Quality: quality}); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
