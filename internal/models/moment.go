@@ -32,6 +32,9 @@ type Moment struct {
 	Width       int       `json:"width"`
 	Height      int       `json:"height"`
 	DurationMs  int64     `json:"duration_ms"`
+	// MembersOnly keeps a moment of a deleted hidden_from_public plan (e.g. the
+	// hotel) hidden from non-members after it falls back to day level.
+	MembersOnly bool      `gorm:"not null;default:false" json:"-"`
 	ObjectKey   string    `gorm:"type:varchar(200)" json:"-"`
 	ThumbKey    string    `gorm:"type:varchar(200)" json:"-"`
 	CreatedAt   time.Time `json:"created_at"`

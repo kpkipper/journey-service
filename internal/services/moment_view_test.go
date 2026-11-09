@@ -311,3 +311,43 @@ func TestListMoments_DanglingPlanShownAsDayLevelForMembers(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, got)
 }
+
+func TestListMoments_DeletedHiddenPlanStaysMembersOnly(t *testing.T) {
+	e := newMomentEnv(t)
+	for _, u := range []string{"alice", "bob", "fol", "str"} {
+		e.user(u)
+	}
+	j := e.journey("alice", true, "public")
+	e.setDates(j, time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC))
+	e.member(j, "bob", models.RoleTraveler)
+	require.NoError(t, e.db.Create(&models.Follow{FollowerID: "fol", FolloweeID: "alice"}).Error)
+	d := e.day(j)
+	hidden := &models.ActivityPlan{ItineraryDayID: d.ID, Description: "hotel", HiddenFromPublic: true}
+	require.NoError(t, e.db.Create(hidden).Error)
+	pub := e.plan(d)
+	mHidden := e.readyMoment(j, d.ID, hidden.ID, "alice")
+	mPub := e.readyMoment(j, d.ID, pub.ID, "alice")
+
+	itin := NewItineraryService(e.svc.Access, repository.NewItineraryRepository(e.db), repository.NewJourneyRepository(e.db), e.repo)
+	require.NoError(t, itin.DeletePlan(context.Background(), "alice", j.Slug, hidden.ID))
+	require.NoError(t, itin.DeletePlan(context.Background(), "alice", j.Slug, pub.ID))
+
+	ids := func(v []MomentView) []string {
+		var o []string
+		for _, m := range v {
+			o = append(o, m.ID)
+		}
+		return o
+	}
+	got, err := e.svc.List(context.Background(), "bob", j.Slug)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{mHidden.ID, mPub.ID}, ids(got))
+	for _, m := range got {
+		assert.Equal(t, "", m.PlanID)
+	}
+	for _, viewer := range []string{"fol", "str", ""} {
+		got, err = e.svc.List(context.Background(), viewer, j.Slug)
+		require.NoError(t, err, viewer)
+		assert.ElementsMatch(t, []string{mPub.ID}, ids(got), viewer)
+	}
+}

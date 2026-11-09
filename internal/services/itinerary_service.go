@@ -308,6 +308,7 @@ func (s *ItineraryService) UpdatePlan(ctx context.Context, userID, slug, planID 
 	if p == nil {
 		return nil, ErrPlanNotFound
 	}
+	oldDayID := p.ItineraryDayID
 	if in.Description != nil && blank(*in.Description) {
 		return nil, &ValidationError{Message: "description must not be empty"}
 	}
@@ -347,6 +348,11 @@ func (s *ItineraryService) UpdatePlan(ctx context.Context, userID, slug, planID 
 		}
 		return nil, err
 	}
+	if s.moments != nil && p.ItineraryDayID != oldDayID {
+		if err := s.moments.MoveToDay(ctx, p.ID, p.ItineraryDayID); err != nil {
+			return nil, err
+		}
+	}
 	return p, nil
 }
 
@@ -366,7 +372,7 @@ func (s *ItineraryService) DeletePlan(ctx context.Context, userID, slug, planID 
 		return err
 	}
 	if s.moments != nil {
-		return s.moments.DetachPlan(ctx, p.ID)
+		return s.moments.DetachPlan(ctx, p.ID, p.HiddenFromPublic)
 	}
 	return nil
 }

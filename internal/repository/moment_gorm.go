@@ -113,7 +113,9 @@ func (r *momentGorm) CountByJourney(ctx context.Context, journeyID string) (int6
 }
 
 func (r *momentGorm) CountByDay(ctx context.Context, dayID string) (int64, error) {
-	return r.count(ctx, "day_id = ? AND status <> ?", dayID, models.MomentRejected)
+	// Moments on the day itself or on any of its plans.
+	planIDs := r.db.WithContext(ctx).Model(&models.ActivityPlan{}).Select("id").Where("itinerary_day_id = ?", dayID)
+	return r.count(ctx, "(day_id = ? OR plan_id IN (?)) AND status <> ?", dayID, planIDs, models.MomentRejected)
 }
 
 func (r *momentGorm) CountPendingByUploader(ctx context.Context, userID string) (int64, error) {
@@ -124,6 +126,14 @@ func (r *momentGorm) CountStartedSince(ctx context.Context, userID string, since
 	return r.count(ctx, "uploader_id = ? AND created_at >= ?", userID, since)
 }
 
-func (r *momentGorm) DetachPlan(ctx context.Context, planID string) error {
-	return r.db.WithContext(ctx).Model(&models.Moment{}).Where("plan_id = ?", planID).Update("plan_id", "").Error
+func (r *momentGorm) DetachPlan(ctx context.Context, planID string, membersOnly bool) error {
+	updates := map[string]any{"plan_id": ""}
+	if membersOnly {
+		updates["members_only"] = true
+	}
+	return r.db.WithContext(ctx).Model(&models.Moment{}).Where("plan_id = ?", planID).Updates(updates).Error
+}
+
+func (r *momentGorm) MoveToDay(ctx context.Context, planID, dayID string) error {
+	return r.db.WithContext(ctx).Model(&models.Moment{}).Where("plan_id = ?", planID).Update("day_id", dayID).Error
 }

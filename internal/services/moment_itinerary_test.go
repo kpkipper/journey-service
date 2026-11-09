@@ -76,3 +76,34 @@ func TestDeleteJourney_DeletesMoments(t *testing.T) {
 	assert.Nil(t, got)
 	assert.Empty(t, store.Keys())
 }
+
+func TestUpdatePlan_MovingDayMovesMoments(t *testing.T) {
+	e, mr, _, _ := newItinMomentEnv(t)
+	j := e.trip()
+	d1 := e.day(j, "D1")
+	d2 := e.day(j, "D2")
+	p := e.plan(j, d1.ID, "a")
+	m := addMoment(t, e, j, d1.ID, p.ID)
+	other := addMoment(t, e, j, d1.ID, "")
+	target := d2.ID
+	_, err := e.svc.UpdatePlan(e.ctx, "alice", j.Slug, p.ID, PlanInput{DayID: &target})
+	require.NoError(t, err)
+	got, err := mr.Get(e.ctx, m.ID)
+	require.NoError(t, err)
+	assert.Equal(t, d2.ID, got.DayID)
+	assert.Equal(t, p.ID, got.PlanID)
+	got, err = mr.Get(e.ctx, other.ID)
+	require.NoError(t, err)
+	assert.Equal(t, d1.ID, got.DayID)
+}
+
+func TestDeleteDay_PlanMomentsBlockDelete(t *testing.T) {
+	e, _, _, _ := newItinMomentEnv(t)
+	j := e.trip()
+	d := e.day(j, "D1")
+	p := e.plan(j, d.ID, "a")
+	// A moment whose day_id is stale but whose plan lives on this day.
+	m := addMoment(t, e, j, "stale-day", p.ID)
+	require.NotEmpty(t, m.ID)
+	assert.ErrorIs(t, e.svc.DeleteDay(e.ctx, "alice", j.Slug, d.ID), ErrDayHasMoments)
+}

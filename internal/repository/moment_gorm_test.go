@@ -126,10 +126,24 @@ func TestMomentRepository_ListsAndCounts(t *testing.T) {
 	stale, _ = repo.ListPendingBefore(ctx, t0.Add(time.Hour))
 	assert.Empty(t, stale)
 
-	require.NoError(t, repo.DetachPlan(ctx, "p1"))
+	require.NoError(t, repo.MoveToDay(ctx, "p1", "d3"))
 	got, _ := repo.Get(ctx, a.ID)
+	assert.Equal(t, "d3", got.DayID)
+	assert.Equal(t, "p1", got.PlanID)
+	require.NoError(t, repo.MoveToDay(ctx, "p1", "d1"))
+
+	require.NoError(t, repo.DetachPlan(ctx, "p1", false))
+	got, _ = repo.Get(ctx, a.ID)
 	assert.Equal(t, "", got.PlanID)
 	assert.Equal(t, "d1", got.DayID)
+	assert.False(t, got.MembersOnly)
+
+	require.NoError(t, repo.DetachPlan(ctx, "p2", true))
+	m := mk(t, repo, models.Moment{JourneyID: "j1", DayID: "d1", PlanID: "p3", UploaderID: "u1", Status: models.MomentReady}, t0)
+	require.NoError(t, repo.DetachPlan(ctx, "p3", true))
+	got, _ = repo.Get(ctx, m.ID)
+	assert.Equal(t, "", got.PlanID)
+	assert.True(t, got.MembersOnly)
 }
 
 func TestJourneyMembersCanPostMigration(t *testing.T) {

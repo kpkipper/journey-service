@@ -460,6 +460,9 @@ func (s *MomentService) List(ctx context.Context, viewerID, slug string) ([]Mome
 		if m.Status != models.MomentReady || !visibleDay[m.DayID] {
 			continue
 		}
+		if m.MembersOnly && v.Role == "" {
+			continue // came from a hidden plan that was later deleted
+		}
 		planID := m.PlanID
 		if planID != "" && !visiblePlan[planID] {
 			if v.Role == "" {

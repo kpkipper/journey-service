@@ -25,7 +25,11 @@ type MomentRepository interface {
 	CountByDay(ctx context.Context, dayID string) (int64, error)
 	CountPendingByUploader(ctx context.Context, userID string) (int64, error)
 	CountStartedSince(ctx context.Context, userID string, since time.Time) (int64, error)
-	DetachPlan(ctx context.Context, planID string) error
+	// DetachPlan moves a deleted plan's moments to day level. membersOnly marks
+	// them members-only (the plan was hidden from non-members).
+	DetachPlan(ctx context.Context, planID string, membersOnly bool) error
+	// MoveToDay re-homes the moments of a plan that moved to another day.
+	MoveToDay(ctx context.Context, planID, dayID string) error
 	ListByJourney(ctx context.Context, journeyID string) ([]models.Moment, error)
 	ListPendingBefore(ctx context.Context, t time.Time) ([]models.Moment, error)
 }
