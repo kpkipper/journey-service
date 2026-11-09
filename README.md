@@ -61,7 +61,7 @@ Authorization: Bearer <token>
 | POST   | `/api/v1/auth/email/verify`    | no   | exchange the emailed token for a session token            |
 | POST   | `/api/v1/auth/logout`          | yes  | revoke the current session                                |
 | GET    | `/api/v1/me`                   | yes  | current user                                              |
-| PATCH  | `/api/v1/me`                   | yes  | update `username`, `display_name`, `bio`, `avatar_url` (https, max 2048 bytes) |
+| PATCH  | `/api/v1/me`                   | yes  | update `username`, `display_name`, `bio`, `avatar_url` (https, max 2048 bytes), `follow_approval` (bool) |
 | GET    | `/api/v1/users/:username`      | optional | public profile (no email); `404` if the viewer is block-related |
 
 Journeys have an owner (`owner_id`, set from the logged-in user on create). Creating, updating and deleting a journey requires login; only the owner may update or delete it (`403 forbidden` if the trip is visible to the caller but they are not the owner, `404` if the trip is hidden from them). Who may read a journey, and how much of it, follows the [Privacy](#privacy) rules. Journeys created before login existed have an empty `owner_id` and are read-only; to hand them to a user run `./server assign-legacy-owner <username>` (see [Claiming existing trips](#claiming-existing-trips)).
@@ -310,14 +310,14 @@ Following is one-way. You cannot follow yourself. By default a user **approves f
 | ------------- | ---- | ------- |
 | `POST /users/:username/follow` | yes | `200 {"is_following", "requested", "followers"}`; `requested: true` when approval is on; repeating is fine; `429` after 200 outgoing pending requests |
 | `DELETE /users/:username/follow` | yes | `200 {"is_following": false, "requested": false, "followers": n}`; also cancels a pending request |
-| `GET /me/follow-requests` | yes | `200 {"items": [{"user", "created_at"}], "count": n}`, newest first |
+| `GET /me/follow-requests` | yes | `200 {"items": [{"user", "created_at"}], "count": n}`, newest first; `count` excludes block-related users (items cap at 100) |
 | `POST /me/follow-requests/:username/accept` | yes | `200 {"accepted": true}`; `404` if no such request (or block-related) |
-| `DELETE /me/follow-requests/:username` | yes | `200 {"declined": true}`; idempotent |
+| `DELETE /me/follow-requests/:username` | yes | `200 {"declined": true}`; idempotent; `404` if block-related |
 | `GET /me/followers` | yes | `200 {"items": [{"user", "created_at"}]}`, newest first |
-| `DELETE /me/followers/:username` | yes | `200 {"removed": true}`; idempotent |
+| `DELETE /me/followers/:username` | yes | `200 {"removed": true}`; idempotent; `404` if block-related |
 | `GET /users/:username/profile` | optional | `200` profile page, as the viewer may see it |
 
-Errors: `400 cannot follow yourself`, `401` without a token on follow/unfollow, `404 user not found` for an unknown username.
+Errors: `400 cannot follow yourself`, `401` without a token on follow/unfollow and on every `/me/follow-requests` and `/me/followers` route, `404 user not found` for an unknown or block-related username (decline, remove follower and unfollow still delete any leftover rows first), and `404` on accept when there is no such request.
 
 The profile shows the trips the user owns or has **joined** (not pending invites), limited to what the viewer may see in lists (table above). Each trip is the same view `GET /journeys/:slug` returns for that viewer, without days except for `now` when the viewer is a member.
 

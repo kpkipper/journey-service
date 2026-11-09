@@ -256,7 +256,7 @@
 - `journeys.owner_id`, `journeys.visibility`, `journeys.cover_url`
 - `journey_members` (user, journey, role, status: invited / joined / left)
 - `moments` (journey, day, plan, uploader, type, url, caption) + ที่เก็บไฟล์ (S3 หรือคล้าย ๆ กัน)
-- `follows`, `blocks`, `reports`
+- `follows`, `follow_requests`, `blocks`, `reports`
 - `feed_events` หรือคำนวณ feed จากตารางเดิม
 - ฟิลด์บน Plan: `category` (เช่น ที่พัก), `hidden_from_public`
 - timezone ของปลายทางบน Journey
