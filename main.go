@@ -35,6 +35,15 @@ func main() {
 	if isAssignLegacy && len(os.Args) < 3 {
 		log.Fatal().Msg("usage: server assign-legacy-owner <username>")
 	}
+	isReports := len(os.Args) > 1 && os.Args[1] == "reports"
+	isResolveReport := len(os.Args) > 1 && os.Args[1] == "resolve-report"
+	if isResolveReport && len(os.Args) < 3 {
+		log.Fatal().Msg("usage: server resolve-report <id>")
+	}
+	isDeleteMoment := len(os.Args) > 1 && os.Args[1] == "delete-moment"
+	if isDeleteMoment && len(os.Args) < 3 {
+		log.Fatal().Msg("usage: server delete-moment <id>")
+	}
 
 	log.Info().Str("host", cfg.DBDSN.Host).Msg("connecting to database")
 	db, err := database.NewConnection(cfg.DBDSN)
@@ -57,25 +66,17 @@ func main() {
 		log.Info().Int64("journeys", n).Str("username", os.Args[2]).Msg("legacy journeys assigned")
 		os.Exit(0)
 	}
-
-	if cfg.Google.ClientID == "" {
-		log.Warn().Msg("GOOGLE_CLIENT_ID is empty; Google login will be rejected")
-	}
-
-	var mail mailer.Mailer
-	if cfg.SMTP.Host == "" {
-		if !allowLogMailer(cfg.App.ENV) {
-			log.Fatal().Str("app_env", cfg.App.ENV).Msg("SMTP_HOST must be set unless APP_ENV is development or test (the log mailer prints login links)")
+	if isReports || isResolveReport {
+		reports := services.NewReportService(services.ReportDeps{Reports: repository.NewReportRepository(db)})
+		if isReports {
+			err = admin.PrintOpenReports(context.Background(), os.Stdout, reports)
+		} else {
+			err = admin.ResolveReport(context.Background(), reports, os.Args[2])
 		}
-		if !validWebURL(cfg.App.WebURL) {
-			log.Warn().Str("app_web_url", cfg.App.WebURL).Msg("APP_WEB_URL is not an absolute http(s) URL; login links will be broken")
+		if err != nil {
+			log.Fatal().Err(err).Msg(os.Args[1] + " failed")
 		}
-		mail = mailer.NewLogMailer()
-	} else {
-		if !validWebURL(cfg.App.WebURL) {
-			log.Fatal().Str("app_web_url", cfg.App.WebURL).Msg("APP_WEB_URL must be an absolute http or https URL when SMTP is used")
-		}
-		mail = mailer.NewSMTPMailer(cfg.SMTP)
+		os.Exit(0)
 	}
 
 	var store storage.Store
@@ -113,6 +114,39 @@ func main() {
 		}
 	default:
 		log.Fatal().Str("storage_driver", cfg.Storage.Driver).Str("app_env", cfg.App.ENV).Msg("STORAGE_DRIVER must be firebase (or local when APP_ENV is development or test)")
+	}
+
+	// delete-moment needs storage but not SMTP, so it runs once storage is built.
+	if isDeleteMoment {
+		svc := services.NewMomentService(services.MomentDeps{
+			Access:  services.NewAccessService(repository.NewJourneyRepository(db), repository.NewMemberRepository(db)),
+			Moments: repository.NewMomentRepository(db), Store: store,
+		})
+		if err := admin.DeleteMoment(context.Background(), svc, os.Args[2]); err != nil {
+			log.Fatal().Err(err).Msg("delete-moment failed")
+		}
+		log.Info().Str("moment", os.Args[2]).Msg("moment deleted")
+		os.Exit(0)
+	}
+
+	if cfg.Google.ClientID == "" {
+		log.Warn().Msg("GOOGLE_CLIENT_ID is empty; Google login will be rejected")
+	}
+
+	var mail mailer.Mailer
+	if cfg.SMTP.Host == "" {
+		if !allowLogMailer(cfg.App.ENV) {
+			log.Fatal().Str("app_env", cfg.App.ENV).Msg("SMTP_HOST must be set unless APP_ENV is development or test (the log mailer prints login links)")
+		}
+		if !validWebURL(cfg.App.WebURL) {
+			log.Warn().Str("app_web_url", cfg.App.WebURL).Msg("APP_WEB_URL is not an absolute http(s) URL; login links will be broken")
+		}
+		mail = mailer.NewLogMailer()
+	} else {
+		if !validWebURL(cfg.App.WebURL) {
+			log.Fatal().Str("app_web_url", cfg.App.WebURL).Msg("APP_WEB_URL must be an absolute http or https URL when SMTP is used")
+		}
+		mail = mailer.NewSMTPMailer(cfg.SMTP)
 	}
 
 	// A true nil interface (not a typed-nil *FFmpeg) when ffmpeg is missing.

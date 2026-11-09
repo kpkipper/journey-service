@@ -675,6 +675,23 @@ func (s *MomentService) Delete(ctx context.Context, userID, momentID string) err
 	return nil
 }
 
+// AdminDelete removes a moment and its files without any permission check.
+// It is only for the operator CLI.
+func (s *MomentService) AdminDelete(ctx context.Context, momentID string) error {
+	m, err := s.Moments.Get(ctx, momentID)
+	if err != nil {
+		return err
+	}
+	if m == nil {
+		return ErrMomentNotFound
+	}
+	if err := s.Moments.Delete(ctx, m.ID); err != nil {
+		return err
+	}
+	s.deleteFiles(ctx, m)
+	return nil
+}
+
 // deleteFiles removes every object that could exist for the moment, best effort.
 func (s *MomentService) deleteFiles(ctx context.Context, m *models.Moment) {
 	full := "full.jpg"

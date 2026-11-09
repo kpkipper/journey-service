@@ -36,6 +36,7 @@ func Models() []any {
 		&models.InviteLink{},
 		&models.Follow{},
 		&models.Block{},
+		&models.Report{},
 		&models.Moment{},
 	}
 }
