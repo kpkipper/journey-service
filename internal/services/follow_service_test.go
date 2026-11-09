@@ -209,3 +209,33 @@ func TestFollow_InstantFollowClearsStaleRequest(t *testing.T) {
 	has, _ := f.follows.HasRequest(ctx, "bob", "alice")
 	assert.False(t, has)
 }
+
+func TestFollow_BlockRelatedUsernamesAre404AfterCleanup(t *testing.T) {
+	ctx := context.Background()
+	f := newProfileFixture(t)
+	blocks := repository.NewBlockRepository(f.db)
+	svc := NewFollowService(repository.NewUserRepository(f.db), f.follows).WithBlocks(blocks)
+	// rows that survived a racing block (block rows only, no cleanup)
+	require.NoError(t, f.follows.Request(ctx, "str", "alice"))
+	require.NoError(t, f.follows.Follow(ctx, "bob", "alice"))
+	require.NoError(t, f.follows.Follow(ctx, "alice", "kmem"))
+	require.NoError(t, f.follows.Request(ctx, "alice", "kmem"))
+	require.NoError(t, blocks.Block(ctx, "alice", "str"))
+	require.NoError(t, blocks.Block(ctx, "bob", "alice"))
+	require.NoError(t, blocks.Block(ctx, "kmem", "alice"))
+
+	assert.ErrorIs(t, svc.Decline(ctx, "alice", "str"), ErrUserNotFound)
+	has, _ := f.follows.HasRequest(ctx, "str", "alice")
+	assert.False(t, has, "declined anyway")
+
+	assert.ErrorIs(t, svc.RemoveFollower(ctx, "alice", "bob"), ErrUserNotFound)
+	ok, _ := f.follows.IsFollowing(ctx, "bob", "alice")
+	assert.False(t, ok, "removed anyway")
+
+	_, err := svc.Unfollow(ctx, "alice", "kmem")
+	assert.ErrorIs(t, err, ErrUserNotFound)
+	ok, _ = f.follows.IsFollowing(ctx, "alice", "kmem")
+	assert.False(t, ok, "unfollowed anyway")
+	has, _ = f.follows.HasRequest(ctx, "alice", "kmem")
+	assert.False(t, has, "request cancelled anyway")
+}

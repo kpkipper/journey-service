@@ -75,14 +75,8 @@ func (s *FollowService) Follow(ctx context.Context, followerID, username string)
 	if u.ID == followerID {
 		return FollowState{}, &ValidationError{Message: "cannot follow yourself"}
 	}
-	if s.blocks != nil {
-		blocked, err := s.blocks.Blocked(ctx, followerID, u.ID)
-		if err != nil {
-			return FollowState{}, err
-		}
-		if blocked {
-			return FollowState{}, ErrUserNotFound
-		}
+	if err := s.notFoundIfBlocked(ctx, followerID, u.ID); err != nil {
+		return FollowState{}, err
 	}
 	already, err := s.follows.IsFollowing(ctx, followerID, u.ID)
 	if err != nil {
@@ -119,7 +113,8 @@ func (s *FollowService) Follow(ctx context.Context, followerID, username string)
 	return s.state(ctx, u.ID, FollowState{Requested: true})
 }
 
-// Unfollow is idempotent; it also cancels a pending request.
+// Unfollow is idempotent; it also cancels a pending request. For a
+// block-related user it still deletes the rows, then returns ErrUserNotFound.
 func (s *FollowService) Unfollow(ctx context.Context, followerID, username string) (FollowState, error) {
 	u, err := s.user(ctx, username)
 	if err != nil {
@@ -131,7 +126,26 @@ func (s *FollowService) Unfollow(ctx context.Context, followerID, username strin
 	if err := s.follows.CancelRequest(ctx, followerID, u.ID); err != nil {
 		return FollowState{}, err
 	}
+	if err := s.notFoundIfBlocked(ctx, followerID, u.ID); err != nil {
+		return FollowState{}, err
+	}
 	return s.state(ctx, u.ID, FollowState{})
+}
+
+// notFoundIfBlocked returns ErrUserNotFound when a and b are block-related.
+// Callers that clean up rows do so first, then report the user as missing.
+func (s *FollowService) notFoundIfBlocked(ctx context.Context, a, b string) error {
+	if s.blocks == nil {
+		return nil
+	}
+	blocked, err := s.blocks.Blocked(ctx, a, b)
+	if err != nil {
+		return err
+	}
+	if blocked {
+		return ErrUserNotFound
+	}
+	return nil
 }
 
 func (s *FollowService) filter(ctx context.Context, userID string, in []models.FollowEntry) ([]models.FollowEntry, error) {
@@ -167,7 +181,8 @@ func (s *FollowService) Followers(ctx context.Context, userID string) ([]models.
 	return s.filter(ctx, userID, in)
 }
 
-// RequestCount is the number of pending requests to userID.
+// RequestCount is the number of pending requests to userID from users who
+// are not block-related (the same set Requests lists, before its cap).
 func (s *FollowService) RequestCount(ctx context.Context, userID string) (int64, error) {
 	return s.follows.CountRequests(ctx, userID)
 }
@@ -178,14 +193,8 @@ func (s *FollowService) Accept(ctx context.Context, userID, requesterUsername st
 	if err != nil {
 		return err
 	}
-	if s.blocks != nil {
-		blocked, err := s.blocks.Blocked(ctx, userID, u.ID)
-		if err != nil {
-			return err
-		}
-		if blocked {
-			return ErrUserNotFound
-		}
+	if err := s.notFoundIfBlocked(ctx, userID, u.ID); err != nil {
+		return err
 	}
 	ok, err := s.follows.AcceptRequest(ctx, u.ID, userID)
 	if err != nil {
@@ -197,22 +206,30 @@ func (s *FollowService) Accept(ctx context.Context, userID, requesterUsername st
 	return nil
 }
 
-// Decline removes a pending request. Idempotent.
+// Decline removes a pending request. Idempotent. For a block-related user
+// it still deletes the row, then returns ErrUserNotFound.
 func (s *FollowService) Decline(ctx context.Context, userID, requesterUsername string) error {
 	u, err := s.user(ctx, requesterUsername)
 	if err != nil {
 		return err
 	}
-	return s.follows.CancelRequest(ctx, u.ID, userID)
+	if err := s.follows.CancelRequest(ctx, u.ID, userID); err != nil {
+		return err
+	}
+	return s.notFoundIfBlocked(ctx, userID, u.ID)
 }
 
 // RemoveFollower deletes the follow followerUsername -> userID. Idempotent.
+// For a block-related user it still deletes the row, then returns ErrUserNotFound.
 func (s *FollowService) RemoveFollower(ctx context.Context, userID, followerUsername string) error {
 	u, err := s.user(ctx, followerUsername)
 	if err != nil {
 		return err
 	}
-	return s.follows.Unfollow(ctx, u.ID, userID)
+	if err := s.follows.Unfollow(ctx, u.ID, userID); err != nil {
+		return err
+	}
+	return s.notFoundIfBlocked(ctx, userID, u.ID)
 }
 
 // Counts returns how many people follow the user and how many the user follows.

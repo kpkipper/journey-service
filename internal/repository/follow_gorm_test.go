@@ -212,3 +212,45 @@ func TestFollowRepository_ListFollowers(t *testing.T) {
 	assert.Equal(t, ids["alice"], got[1].UserID)
 	assert.True(t, got[0].CreatedAt.Equal(base.Add(time.Minute)))
 }
+
+func TestFollowRepository_AcceptSkipsBlockedPairs(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	repo := NewFollowRepository(db)
+	blocks := NewBlockRepository(db)
+	ctx := context.Background()
+	// request rows that survived a racing block (block rows only, no cleanup)
+	require.NoError(t, repo.Request(ctx, "u1", "u2"))
+	require.NoError(t, repo.Request(ctx, "u3", "u2"))
+	require.NoError(t, repo.Request(ctx, "u4", "u2"))
+	require.NoError(t, blocks.Block(ctx, "u2", "u1")) // target blocked requester
+	require.NoError(t, blocks.Block(ctx, "u3", "u2")) // requester blocked target
+
+	ok, err := repo.AcceptRequest(ctx, "u1", "u2")
+	require.NoError(t, err)
+	assert.False(t, ok)
+	f, _ := repo.IsFollowing(ctx, "u1", "u2")
+	assert.False(t, f)
+
+	require.NoError(t, repo.AcceptAllRequests(ctx, "u2", nil))
+	f, _ = repo.IsFollowing(ctx, "u3", "u2")
+	assert.False(t, f)
+	f, _ = repo.IsFollowing(ctx, "u4", "u2")
+	assert.True(t, f)
+	n, _ := repo.CountFollowers(ctx, "u2")
+	assert.Equal(t, int64(1), n)
+}
+
+func TestFollowRepository_CountRequestsExcludesBlocked(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	repo := NewFollowRepository(db)
+	blocks := NewBlockRepository(db)
+	ctx := context.Background()
+	for _, r := range []string{"u1", "u3", "u4"} {
+		require.NoError(t, repo.Request(ctx, r, "u2"))
+	}
+	require.NoError(t, blocks.Block(ctx, "u2", "u1"))
+	require.NoError(t, blocks.Block(ctx, "u3", "u2"))
+	n, err := repo.CountRequests(ctx, "u2")
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), n)
+}

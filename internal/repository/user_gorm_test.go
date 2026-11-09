@@ -104,3 +104,23 @@ func TestUserRepository_FollowApprovalDefaultsTrueAndPersistsFalse(t *testing.T)
 	got, _ = repo.GetByID(ctx, u.ID)
 	assert.True(t, got.FollowApproval)
 }
+
+func TestUserRepository_UpdateNeverWritesFollowApproval(t *testing.T) {
+	repo := NewUserRepository(testutil.NewTestDB(t))
+	ctx := context.Background()
+	u := &models.User{Email: "a@x.com", Username: "alice"}
+	require.NoError(t, repo.Create(ctx, u))
+
+	for _, on := range []bool{false, true} {
+		stale, err := repo.GetByID(ctx, u.ID)
+		require.NoError(t, err)
+		require.NoError(t, repo.SetFollowApproval(ctx, u.ID, on))
+		stale.FollowApproval = !on
+		stale.Bio = "bio"
+		require.NoError(t, repo.Update(ctx, stale))
+		got, err := repo.GetByID(ctx, u.ID)
+		require.NoError(t, err)
+		assert.Equal(t, on, got.FollowApproval, "stale Update must not overwrite follow_approval")
+		assert.Equal(t, "bio", got.Bio)
+	}
+}

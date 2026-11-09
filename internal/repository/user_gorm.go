@@ -57,8 +57,10 @@ func (r *userGorm) GetByUsername(ctx context.Context, username string) (*models.
 	return r.getWhere(ctx, "username = ?", username)
 }
 
+// Update saves the whole row except follow_approval, which only
+// SetFollowApproval writes (a stale struct must not undo a concurrent toggle).
 func (r *userGorm) Update(ctx context.Context, u *models.User) error {
-	return r.db.WithContext(ctx).Save(u).Error
+	return r.db.WithContext(ctx).Omit("follow_approval").Save(u).Error
 }
 
 func (r *userGorm) SetFollowApproval(ctx context.Context, userID string, on bool) error {

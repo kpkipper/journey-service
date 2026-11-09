@@ -93,6 +93,11 @@ func (r *followGorm) AcceptRequest(ctx context.Context, requesterID, targetID st
 		if res.RowsAffected == 0 {
 			return nil
 		}
+		// A block that raced the request wins: the request is gone, no follow.
+		blocked, err := blockedTx(tx, requesterID, targetID)
+		if err != nil || blocked {
+			return err
+		}
 		accepted = true
 		return tx.Clauses(clause.OnConflict{DoNothing: true}).
 			Create(&models.Follow{FollowerID: requesterID, FolloweeID: targetID}).Error
@@ -100,25 +105,56 @@ func (r *followGorm) AcceptRequest(ctx context.Context, requesterID, targetID st
 	return accepted, err
 }
 
+// blockedTx reports whether a block exists between a and b in either direction.
+func blockedTx(tx *gorm.DB, a, b string) (bool, error) {
+	var n int64
+	err := tx.Model(&models.Block{}).
+		Where("(blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)", a, b, b, a).
+		Count(&n).Error
+	return n > 0, err
+}
+
+// notBlockedWithTarget restricts follow_requests rows to requesters with no
+// block (either direction) against the row's target.
+const notBlockedWithTarget = "NOT EXISTS (SELECT 1 FROM blocks WHERE " +
+	"(blocks.blocker_id = follow_requests.requester_id AND blocks.blocked_id = follow_requests.target_id) OR " +
+	"(blocks.blocker_id = follow_requests.target_id AND blocks.blocked_id = follow_requests.requester_id))"
+
+// AcceptAllRequests deletes every request to targetID and turns those from
+// requesters not in skip and not block-related into follows. Requests are
+// deleted (and row-locked) before blocks are read, the same order as
+// AcceptRequest, so a racing BlockAndUnfollow either removes the request first
+// or removes the new follow after.
 func (r *followGorm) AcceptAllRequests(ctx context.Context, targetID string, skip map[string]bool) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		var reqs []models.FollowRequest
-		if err := tx.Where("target_id = ?", targetID).Find(&reqs).Error; err != nil {
+		if err := tx.Clauses(clause.Returning{Columns: []clause.Column{{Name: "requester_id"}}}).
+			Where("target_id = ?", targetID).Delete(&reqs).Error; err != nil {
 			return err
+		}
+		if len(reqs) == 0 {
+			return nil
+		}
+		var blocks []models.Block
+		if err := tx.Where("blocker_id = ? OR blocked_id = ?", targetID, targetID).
+			Find(&blocks).Error; err != nil {
+			return err
+		}
+		related := make(map[string]bool, len(blocks))
+		for _, b := range blocks {
+			related[b.BlockerID], related[b.BlockedID] = true, true
 		}
 		follows := make([]models.Follow, 0, len(reqs))
 		for _, q := range reqs {
-			if skip[q.RequesterID] {
+			if skip[q.RequesterID] || related[q.RequesterID] {
 				continue
 			}
 			follows = append(follows, models.Follow{FollowerID: q.RequesterID, FolloweeID: targetID})
 		}
-		if len(follows) > 0 {
-			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&follows).Error; err != nil {
-				return err
-			}
+		if len(follows) == 0 {
+			return nil
 		}
-		return tx.Where("target_id = ?", targetID).Delete(&models.FollowRequest{}).Error
+		return tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&follows).Error
 	})
 }
 
@@ -129,7 +165,7 @@ func (r *followGorm) ListRequests(ctx context.Context, targetID string, limit in
 func (r *followGorm) CountRequests(ctx context.Context, targetID string) (int64, error) {
 	var n int64
 	err := r.db.WithContext(ctx).Model(&models.FollowRequest{}).
-		Where("target_id = ?", targetID).Count(&n).Error
+		Where("target_id = ?", targetID).Where(notBlockedWithTarget).Count(&n).Error
 	return n, err
 }
 

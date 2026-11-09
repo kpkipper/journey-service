@@ -30,12 +30,14 @@ func (r *blockGorm) BlockAndUnfollow(ctx context.Context, blockerID, blockedID s
 		if err := insertBlock(tx, blockerID, blockedID); err != nil {
 			return err
 		}
-		if err := tx.Where("(follower_id = ? AND followee_id = ?) OR (follower_id = ? AND followee_id = ?)",
-			blockerID, blockedID, blockedID, blockerID).Delete(&models.Follow{}).Error; err != nil {
-			return err
-		}
+		// Requests before follows: a concurrent accept holds the request row
+		// lock, so we wait for it and then delete the follow it committed.
 		if err := tx.Where("(requester_id = ? AND target_id = ?) OR (requester_id = ? AND target_id = ?)",
 			blockerID, blockedID, blockedID, blockerID).Delete(&models.FollowRequest{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("(follower_id = ? AND followee_id = ?) OR (follower_id = ? AND followee_id = ?)",
+			blockerID, blockedID, blockedID, blockerID).Delete(&models.Follow{}).Error; err != nil {
 			return err
 		}
 		// Pending invites between the two (in trips either owns, or sent by the

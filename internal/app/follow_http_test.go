@@ -1,7 +1,10 @@
 package app_test
 
 import (
+	"context"
 	"testing"
+
+	"github.com/kpkipper/journey-service/internal/repository"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,7 +35,7 @@ func TestHTTP_FollowRequests(t *testing.T) {
 	follower := func(t *testing.T, e *env, bob, slug string) {
 		status, body, raw := e.do(t, "GET", api+"/journeys/"+slug, bob, "")
 		require.Equal(t, 200, status, raw)
-		assert.NotEqual(t, true, body["data"].(map[string]any)["redacted"])
+		assert.Equal(t, false, body["data"].(map[string]any)["redacted"])
 		status, _, raw = e.do(t, "GET", api+"/journeys/"+slug+"/moments", bob, "")
 		assert.Equal(t, 200, status, raw)
 	}
@@ -72,6 +75,35 @@ func TestHTTP_FollowRequests(t *testing.T) {
 		assert.Equal(t, map[string]any{"removed": true}, body["data"])
 		stranger(t, e, bob, slug)
 		assert.Empty(t, e.items(t, alice, "/me/followers"))
+	})
+
+	t.Run("pending requester sees no now, feed or traveler until accepted", func(t *testing.T) {
+		e, alice, bob, slug := setup(t)
+		e.do(t, "POST", api+"/users/alice/follow", bob, "")
+		seen := func() (now any, feed, travelers string) {
+			p, _ := e.profile(t, bob, "alice")
+			status, _, rawFeed := e.do(t, "GET", api+"/feed", bob, "")
+			require.Equal(t, 200, status, rawFeed)
+			status, body, rawNow := e.do(t, "GET", api+"/feed/now", bob, "")
+			require.Equal(t, 200, status, rawNow)
+			tr := dataOf(body)["travelers"].([]any)
+			names := ""
+			for _, x := range tr {
+				names += x.(map[string]any)["user"].(map[string]any)["username"].(string) + ","
+			}
+			return p["now"], rawFeed, names
+		}
+		now, feed, travelers := seen()
+		assert.Nil(t, now)
+		assert.NotContains(t, feed, slug)
+		assert.NotContains(t, travelers, "alice")
+
+		status, _, raw := e.do(t, "POST", api+"/me/follow-requests/bob/accept", alice, "")
+		require.Equal(t, 200, status, raw)
+		now, feed, travelers = seen()
+		assert.NotNil(t, now)
+		assert.Contains(t, feed, slug)
+		assert.Contains(t, travelers, "alice")
 	})
 
 	t.Run("decline and cancel", func(t *testing.T) {
@@ -118,6 +150,26 @@ func TestHTTP_FollowRequests(t *testing.T) {
 		assert.Equal(t, 404, status, raw)
 		e.block(t, alice, carol)
 		assert.Empty(t, e.items(t, alice, "/me/followers"))
+		status, _, raw = e.do(t, "DELETE", api+"/me/followers/carol", alice, "")
+		assert.Equal(t, 404, status, raw)
+		status, _, raw = e.do(t, "DELETE", api+"/me/follow-requests/bob", alice, "")
+		assert.Equal(t, 404, status, raw)
+		status, _, raw = e.do(t, "DELETE", api+"/users/bob/follow", alice, "")
+		assert.Equal(t, 404, status, raw)
+	})
+
+	t.Run("count matches the block-filtered items", func(t *testing.T) {
+		e, alice, bob, _ := setup(t)
+		carol := e.named(t, "carol@gmail.com", "carol")
+		e.do(t, "POST", api+"/users/alice/follow", bob, "")
+		e.do(t, "POST", api+"/users/alice/follow", carol, "")
+		// block row only (no cleanup), as if raced
+		require.NoError(t, repository.NewBlockRepository(e.db).Block(context.Background(), e.userID(t, alice), e.userID(t, bob)))
+		status, body, raw := e.do(t, "GET", api+"/me/follow-requests", alice, "")
+		require.Equal(t, 200, status, raw)
+		d := dataOf(body)
+		assert.Len(t, d["items"], 1)
+		assert.Equal(t, 1.0, d["count"])
 	})
 
 	t.Run("auth and unknown", func(t *testing.T) {
