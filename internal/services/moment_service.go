@@ -14,12 +14,15 @@ import (
 	"github.com/kpkipper/journey-service/internal/models"
 	"github.com/kpkipper/journey-service/internal/repository"
 	"github.com/kpkipper/journey-service/internal/storage"
+	"github.com/kpkipper/journey-service/pkg/logger"
 	"gorm.io/gorm"
 )
 
 var (
 	ErrMomentNotFound  = errors.New("moment not found")
 	ErrTripMomentLimit = errors.New("trip has too many moments")
+	ErrDayHasMoments   = errors.New("day has moments")
+	ErrTripHasMoments  = errors.New("trip has moments")
 )
 
 const (
@@ -420,4 +423,203 @@ func (s *MomentService) Complete(ctx context.Context, userID, slug, momentID str
 	m.Status = models.MomentReady
 	_ = s.Store.Delete(ctx, rawKey)
 	return s.toView(ctx, m, true)
+}
+
+// List returns the ready moments of a trip the viewer may see. A viewer who
+// cannot see the trip gets ErrNotFound; a redacted view (stranger during the
+// trip) gets nothing; moments on days or plans the view hides are dropped.
+func (s *MomentService) List(ctx context.Context, viewerID, slug string) ([]MomentView, error) {
+	v, err := s.Privacy.View(ctx, viewerID, slug)
+	if err != nil {
+		return nil, err
+	}
+	out := []MomentView{}
+	if v.Redacted {
+		return out, nil
+	}
+	visibleDay := map[string]bool{}
+	visiblePlan := map[string]bool{}
+	for _, d := range v.Days {
+		visibleDay[d.ID] = true
+		for _, p := range d.Plans {
+			visiblePlan[p.ID] = true
+		}
+	}
+	ms, err := s.Moments.ListReadyByJourney(ctx, v.ID)
+	if err != nil {
+		return nil, err
+	}
+	ownerID := ""
+	if j, err := s.Access.journeys.GetByID(ctx, v.ID); err != nil {
+		return nil, err
+	} else if j != nil {
+		ownerID = j.OwnerID
+	}
+	for i := range ms {
+		m := &ms[i]
+		if m.Status != models.MomentReady || !visibleDay[m.DayID] || (m.PlanID != "" && !visiblePlan[m.PlanID]) {
+			continue
+		}
+		canDelete := viewerID != "" && (m.UploaderID == viewerID || (ownerID != "" && ownerID == viewerID))
+		mv, err := s.toView(ctx, m, canDelete)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *mv)
+	}
+	return out, nil
+}
+
+// UpdateCaption lets the uploader, while still a member, edit a ready moment's caption.
+func (s *MomentService) UpdateCaption(ctx context.Context, userID, momentID, caption string) (*MomentView, error) {
+	caption = strings.TrimSpace(caption)
+	if utf8.RuneCountInString(caption) > maxCaptionRunes {
+		return nil, &ValidationError{Message: "caption must be at most 300 characters"}
+	}
+	m, err := s.Moments.Get(ctx, momentID)
+	if err != nil {
+		return nil, err
+	}
+	if m == nil || userID == "" || m.UploaderID != userID || m.Status != models.MomentReady {
+		return nil, ErrMomentNotFound
+	}
+	j, err := s.Access.journeys.GetByID(ctx, m.JourneyID)
+	if err != nil {
+		return nil, err
+	}
+	if j == nil {
+		return nil, ErrMomentNotFound
+	}
+	a, err := s.Access.ForJourney(ctx, j, userID)
+	if err != nil {
+		return nil, err
+	}
+	if !a.IsMember() {
+		return nil, ErrMomentNotFound
+	}
+	if err := s.Moments.UpdateCaption(ctx, m.ID, caption); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrMomentNotFound
+		}
+		return nil, err
+	}
+	m.Caption = caption
+	return s.toView(ctx, m, true)
+}
+
+// Delete removes a moment: the uploader (even after leaving the trip) or the trip owner.
+func (s *MomentService) Delete(ctx context.Context, userID, momentID string) error {
+	m, err := s.Moments.Get(ctx, momentID)
+	if err != nil {
+		return err
+	}
+	if m == nil || userID == "" {
+		return ErrMomentNotFound
+	}
+	if m.UploaderID != userID {
+		j, err := s.Access.journeys.GetByID(ctx, m.JourneyID)
+		if err != nil {
+			return err
+		}
+		if j == nil || j.OwnerID == "" || j.OwnerID != userID {
+			return ErrMomentNotFound
+		}
+	}
+	if err := s.Moments.Delete(ctx, m.ID); err != nil {
+		return err
+	}
+	s.deleteFiles(ctx, m)
+	return nil
+}
+
+// deleteFiles removes every object that could exist for the moment, best effort.
+func (s *MomentService) deleteFiles(ctx context.Context, m *models.Moment) {
+	full := "full.jpg"
+	if m.Kind == models.MomentVideo {
+		full = "video.mp4"
+	}
+	for _, key := range []string{
+		storage.RawKey(m.JourneyID, m.ID),
+		storage.MomentKey(m.JourneyID, m.ID, full),
+		storage.MomentKey(m.JourneyID, m.ID, "thumb.jpg"),
+	} {
+		if err := s.Store.Delete(ctx, key); err != nil {
+			logger.Get().Error().Err(err).Str("key", key).Msg("moment file delete failed")
+		}
+	}
+}
+
+// ListMine returns the caller's ready moments across all existing trips, newest first.
+func (s *MomentService) ListMine(ctx context.Context, userID string) ([]MomentView, error) {
+	ms, err := s.Moments.ListByUploader(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	out := []MomentView{}
+	trips := map[string]*models.Journey{}
+	for i := range ms {
+		m := &ms[i]
+		if m.Status != models.MomentReady {
+			continue
+		}
+		j, seen := trips[m.JourneyID]
+		if !seen {
+			if j, err = s.Access.journeys.GetByID(ctx, m.JourneyID); err != nil {
+				return nil, err
+			}
+			trips[m.JourneyID] = j
+		}
+		if j == nil {
+			continue
+		}
+		mv, err := s.toView(ctx, m, true)
+		if err != nil {
+			return nil, err
+		}
+		mv.Journey = &MomentJourney{Slug: j.Slug, Title: j.Title}
+		out = append(out, *mv)
+	}
+	return out, nil
+}
+
+// DeleteForJourney removes all moments of a trip (any status) and their files.
+func (s *MomentService) DeleteForJourney(ctx context.Context, journeyID string) error {
+	ms, err := s.Moments.ListByJourney(ctx, journeyID)
+	if err != nil {
+		return err
+	}
+	for i := range ms {
+		m := &ms[i]
+		if err := s.Moments.Delete(ctx, m.ID); err != nil {
+			return err
+		}
+		s.deleteFiles(ctx, m)
+	}
+	return nil
+}
+
+// CleanupPending removes uploads still pending after an hour (row and raw
+// object) and old rejected rows. It returns the number of rows removed.
+func (s *MomentService) CleanupPending(ctx context.Context) (int, error) {
+	cutoff := s.Now().Add(-time.Hour)
+	ms, err := s.Moments.ListPendingBefore(ctx, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for i := range ms {
+		m := &ms[i]
+		if m.Status != models.MomentPending {
+			continue
+		}
+		if err := s.Moments.Delete(ctx, m.ID); err != nil {
+			return n, err
+		}
+		n++
+		if err := s.Store.Delete(ctx, storage.RawKey(m.JourneyID, m.ID)); err != nil {
+			logger.Get().Error().Err(err).Str("moment", m.ID).Msg("raw upload delete failed")
+		}
+	}
+	r, err := s.Moments.DeleteRejectedBefore(ctx, cutoff)
+	return n + int(r), err
 }

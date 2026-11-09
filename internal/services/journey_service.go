@@ -6,6 +6,7 @@ import (
 
 	"github.com/kpkipper/journey-service/internal/models"
 	"github.com/kpkipper/journey-service/internal/repository"
+	"github.com/kpkipper/journey-service/pkg/logger"
 	"gorm.io/gorm"
 )
 
@@ -15,6 +16,16 @@ var ErrForbidden = errors.New("forbidden")
 type JourneyService struct {
 	repo   repository.JourneyRepository
 	access *AccessService
+
+	moments  repository.MomentRepository
+	onDelete func(ctx context.Context, journeyID string) error
+}
+
+// WithMoments makes full updates fail while the trip has moments and runs
+// onDelete (best effort, errors only logged) after a trip is deleted.
+func (s *JourneyService) WithMoments(repo repository.MomentRepository, onDelete func(ctx context.Context, journeyID string) error) *JourneyService {
+	s.moments, s.onDelete = repo, onDelete
+	return s
 }
 
 func NewJourneyService(repo repository.JourneyRepository, access *AccessService) *JourneyService {
@@ -78,6 +89,15 @@ func (s *JourneyService) Update(ctx context.Context, userID, slug string, update
 	if err := validateJourney(updated); err != nil {
 		return err
 	}
+	if s.moments != nil {
+		n, err := s.moments.CountByJourney(ctx, a.Journey.ID)
+		if err != nil {
+			return err
+		}
+		if n > 0 {
+			return ErrTripHasMoments
+		}
+	}
 	updated.ID = a.Journey.ID
 	resetChildren(updated)
 
@@ -98,5 +118,13 @@ func (s *JourneyService) Delete(ctx context.Context, userID, slug string) error 
 	if !a.IsOwner() {
 		return s.access.Deny(ctx, a, userID)
 	}
-	return s.repo.Delete(ctx, slug)
+	if err := s.repo.Delete(ctx, slug); err != nil {
+		return err
+	}
+	if s.onDelete != nil {
+		if err := s.onDelete(context.WithoutCancel(ctx), a.Journey.ID); err != nil {
+			logger.Get().Error().Err(err).Str("journey", a.Journey.ID).Msg("delete moments of deleted trip failed")
+		}
+	}
+	return nil
 }

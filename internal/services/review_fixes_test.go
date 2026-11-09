@@ -149,7 +149,7 @@ func TestReorderPlans_PlanVanishes(t *testing.T) {
 	d := e.day(j, "D1")
 	p1, p2 := e.plan(j, d.ID, "a"), e.plan(j, d.ID, "b")
 	svc := NewItineraryService(NewAccessService(e.jrepo, repository.NewMemberRepository(e.db)),
-		vanishingItinRepo{repository.NewItineraryRepository(e.db), e.db}, e.jrepo)
+		vanishingItinRepo{repository.NewItineraryRepository(e.db), e.db}, e.jrepo, nil)
 
 	err := svc.ReorderPlans(e.ctx, "alice", j.Slug, d.ID, []string{p2.ID, p1.ID})
 	var ve *ValidationError

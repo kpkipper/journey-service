@@ -50,10 +50,11 @@ type ItineraryService struct {
 	access   *AccessService
 	repo     repository.ItineraryRepository
 	journeys repository.JourneyRepository
+	moments  repository.MomentRepository // optional; nil means no moments
 }
 
-func NewItineraryService(a *AccessService, r repository.ItineraryRepository, j repository.JourneyRepository) *ItineraryService {
-	return &ItineraryService{access: a, repo: r, journeys: j}
+func NewItineraryService(a *AccessService, r repository.ItineraryRepository, j repository.JourneyRepository, moments repository.MomentRepository) *ItineraryService {
+	return &ItineraryService{access: a, repo: r, journeys: j, moments: moments}
 }
 
 func (s *ItineraryService) editable(ctx context.Context, userID, slug string) (*Access, error) {
@@ -222,6 +223,15 @@ func (s *ItineraryService) DeleteDay(ctx context.Context, userID, slug, dayID st
 	if d == nil {
 		return ErrDayNotFound
 	}
+	if s.moments != nil {
+		n, err := s.moments.CountByDay(ctx, d.ID)
+		if err != nil {
+			return err
+		}
+		if n > 0 {
+			return ErrDayHasMoments
+		}
+	}
 	return s.repo.DeleteDay(ctx, d)
 }
 
@@ -352,7 +362,13 @@ func (s *ItineraryService) DeletePlan(ctx context.Context, userID, slug, planID 
 	if p == nil {
 		return ErrPlanNotFound
 	}
-	return s.repo.DeletePlan(ctx, p.ID)
+	if err := s.repo.DeletePlan(ctx, p.ID); err != nil {
+		return err
+	}
+	if s.moments != nil {
+		return s.moments.DetachPlan(ctx, p.ID)
+	}
+	return nil
 }
 
 func (s *ItineraryService) ReorderPlans(ctx context.Context, userID, slug, dayID string, planIDs []string) error {

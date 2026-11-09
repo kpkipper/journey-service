@@ -28,7 +28,7 @@ func newItinEnv(t *testing.T) *itinEnv {
 	access := NewAccessService(jr, repository.NewMemberRepository(db))
 	e := &itinEnv{
 		t: t, db: db, jrepo: jr, ctx: context.Background(),
-		svc:      NewItineraryService(access, repository.NewItineraryRepository(db), jr),
+		svc:      NewItineraryService(access, repository.NewItineraryRepository(db), jr, repository.NewMomentRepository(db)),
 		journeys: NewJourneyService(jr, access),
 	}
 	for _, u := range []string{"alice", "edtr", "trav", "out"} {

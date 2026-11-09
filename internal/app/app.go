@@ -36,7 +36,7 @@ func New(d Deps) *fiber.App {
 		Access: accessSvc, Follows: followRepo, Members: memberRepo, Users: userRepo, Now: d.Now,
 	})
 	journeySvc := services.NewJourneyService(journeyRepo, accessSvc)
-	itinerarySvc := services.NewItineraryService(accessSvc, repository.NewItineraryRepository(d.DB), journeyRepo)
+	itinerarySvc := services.NewItineraryService(accessSvc, repository.NewItineraryRepository(d.DB), journeyRepo, repository.NewMomentRepository(d.DB))
 	memberSvc := services.NewMemberService(services.MemberDeps{
 		Access:   accessSvc,
 		Journeys: journeyRepo,

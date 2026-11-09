@@ -61,9 +61,12 @@ func newMomentEnv(t *testing.T) *momentEnv {
 	journeys := repository.NewJourneyRepository(db)
 	members := repository.NewMemberRepository(db)
 	e.repo = repository.NewMomentRepository(db)
-	access := NewAccessService(journeys, members)
+	follows := repository.NewFollowRepository(db)
+	access := NewAccessService(journeys, members).WithFollows(follows)
+	privacy := NewPrivacyService(PrivacyDeps{Access: access, Follows: follows, Members: members,
+		Users: repository.NewUserRepository(db), Now: func() time.Time { return e.now }})
 	e.svc = NewMomentService(MomentDeps{
-		Access: access, Moments: e.repo, Itinerary: repository.NewItineraryRepository(db),
+		Access: access, Privacy: privacy, Moments: e.repo, Itinerary: repository.NewItineraryRepository(db),
 		Users: repository.NewUserRepository(db), Store: e.store, Video: e.video,
 		TempDir: e.temp, Now: func() time.Time { return e.now },
 	})
