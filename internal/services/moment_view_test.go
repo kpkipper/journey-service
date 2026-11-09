@@ -351,3 +351,75 @@ func TestListMoments_DeletedHiddenPlanStaysMembersOnly(t *testing.T) {
 		assert.ElementsMatch(t, []string{mPub.ID}, ids(got), viewer)
 	}
 }
+
+type countingUsers struct {
+	repository.UserRepository
+	byID, byIDs int
+}
+
+func (c *countingUsers) GetByID(ctx context.Context, id string) (*models.User, error) {
+	c.byID++
+	return c.UserRepository.GetByID(ctx, id)
+}
+
+func (c *countingUsers) GetByIDs(ctx context.Context, ids []string) ([]models.User, error) {
+	c.byIDs++
+	return c.UserRepository.GetByIDs(ctx, ids)
+}
+
+func TestListMoments_BatchesUploadersAndSignsStableURLs(t *testing.T) {
+	e := newMomentEnv(t)
+	for _, u := range []string{"alice", "bob"} {
+		e.user(u)
+	}
+	cu := &countingUsers{UserRepository: e.svc.Users}
+	e.svc.Users = cu
+	j := e.journey("alice", true, "private")
+	e.member(j, "bob", models.RoleTraveler)
+	d := e.day(j)
+	for i := 0; i < 3; i++ {
+		e.readyMoment(j, d.ID, "", "alice")
+		e.readyMoment(j, d.ID, "", "bob")
+	}
+
+	first, err := e.svc.List(context.Background(), "alice", j.Slug)
+	require.NoError(t, err)
+	require.Len(t, first, 6)
+	assert.Equal(t, 1, cu.byIDs)
+	assert.Equal(t, 0, cu.byID)
+	for _, m := range first {
+		require.NotNil(t, m.Uploader)
+	}
+
+	e.now = e.now.Add(20 * time.Minute) // same hour bucket
+	second, err := e.svc.List(context.Background(), "alice", j.Slug)
+	require.NoError(t, err)
+	for i := range first {
+		assert.Equal(t, first[i].URL, second[i].URL)
+		assert.Equal(t, first[i].ThumbURL, second[i].ThumbURL)
+	}
+
+	mine, err := e.svc.ListMine(context.Background(), "alice")
+	require.NoError(t, err)
+	require.Len(t, mine, 3)
+	assert.Equal(t, 0, cu.byID)
+	assert.Equal(t, 3, cu.byIDs)
+}
+
+func TestSignedExpiryBucket(t *testing.T) {
+	cases := []struct{ now, want string }{
+		{"12:00:00", "13:00:00"}, // 60 min left
+		{"12:29:59", "13:00:00"}, // just over 30 min left
+		{"12:30:00", "13:00:00"}, // exactly 30 min left
+		{"12:30:01", "14:00:00"}, // under 30 min: next hour
+		{"12:59:00", "14:00:00"},
+	}
+	for _, c := range cases {
+		now, _ := time.Parse("2006-01-02 15:04:05", "2026-11-09 "+c.now)
+		want, _ := time.Parse("2006-01-02 15:04:05", "2026-11-09 "+c.want)
+		got := signedExpiry(now)
+		assert.True(t, got.Equal(want), "%s: got %s", c.now, got)
+		assert.GreaterOrEqual(t, got.Sub(now), 30*time.Minute)
+		assert.LessOrEqual(t, got.Sub(now), 90*time.Minute)
+	}
+}

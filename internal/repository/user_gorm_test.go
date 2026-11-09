@@ -71,3 +71,17 @@ func TestUserRepository_Update(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "hello", got.Bio)
 }
+
+func TestUserRepository_GetByIDs(t *testing.T) {
+	repo := NewUserRepository(testutil.NewTestDB(t))
+	ctx := context.Background()
+	for _, n := range []string{"a", "b", "c"} {
+		require.NoError(t, repo.Create(ctx, &models.User{ID: n, Email: n + "@x.com", Username: n, DisplayName: n}))
+	}
+	got, err := repo.GetByIDs(ctx, []string{"a", "c", "missing"})
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	none, err := repo.GetByIDs(ctx, nil)
+	require.NoError(t, err)
+	assert.Empty(t, none)
+}

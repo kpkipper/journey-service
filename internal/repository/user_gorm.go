@@ -36,6 +36,15 @@ func (r *userGorm) GetByID(ctx context.Context, id string) (*models.User, error)
 	return r.getWhere(ctx, "id = ?", id)
 }
 
+func (r *userGorm) GetByIDs(ctx context.Context, ids []string) ([]models.User, error) {
+	var out []models.User
+	if len(ids) == 0 {
+		return out, nil
+	}
+	err := r.db.WithContext(ctx).Where("id IN ?", ids).Find(&out).Error
+	return out, err
+}
+
 func (r *userGorm) GetByEmail(ctx context.Context, email string) (*models.User, error) {
 	return r.getWhere(ctx, "email = ?", email)
 }

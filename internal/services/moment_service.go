@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -26,16 +27,17 @@ var (
 )
 
 const (
-	maxPhotoBytes      int64 = 10485760
-	maxVideoBytes      int64 = 104857600
-	maxCaptionRunes          = 300
-	maxMomentsPerTrip        = 500
-	maxStartsPerHour         = 100
-	maxPendingPerUser        = 40
-	uploadURLTTL             = 15 * time.Minute
-	momentViewURLTTL         = time.Hour
-	maxConcurrentImage       = 2
-	maxConcurrentVideo       = 1
+	maxPhotoBytes       int64 = 10485760
+	maxVideoBytes       int64 = 104857600
+	maxCaptionRunes           = 300
+	maxMomentsPerTrip         = 500
+	maxStartsPerHour          = 100
+	maxPendingPerUser         = 40
+	uploadURLTTL              = 15 * time.Minute
+	minViewURLRemaining       = 30 * time.Minute
+	maxSignedURLCache         = 5000
+	maxConcurrentImage        = 2
+	maxConcurrentVideo        = 1
 )
 
 var photoTypes = map[string]bool{"image/jpeg": true, "image/png": true, "image/webp": true}
@@ -57,6 +59,53 @@ type MomentService struct {
 	MomentDeps
 	imageSem chan struct{}
 	videoSem chan struct{}
+
+	urlMu     sync.Mutex
+	urlExpiry time.Time // expiry the cache currently holds URLs for
+	urlCache  map[signedURLKey]string
+}
+
+type signedURLKey struct {
+	key    string
+	expiry time.Time
+}
+
+// signedExpiry is the next whole-hour boundary with at least 30 minutes left,
+// so a view URL lives 30-90 minutes and is identical for everyone in the bucket.
+func signedExpiry(now time.Time) time.Time {
+	exp := now.Truncate(time.Hour).Add(time.Hour)
+	if exp.Sub(now) < minViewURLRemaining {
+		exp = exp.Add(time.Hour)
+	}
+	return exp
+}
+
+// signedGet returns a signed GET URL for a moments/ object, cached per
+// (key, expiry). The cache is bounded and dropped when the bucket rolls over.
+func (s *MomentService) signedGet(ctx context.Context, key string) (string, error) {
+	now := s.Now()
+	exp := signedExpiry(now)
+	ck := signedURLKey{key, exp}
+	s.urlMu.Lock()
+	if !s.urlExpiry.Equal(exp) || len(s.urlCache) >= maxSignedURLCache {
+		s.urlExpiry = exp
+		s.urlCache = map[signedURLKey]string{}
+	}
+	if u, ok := s.urlCache[ck]; ok {
+		s.urlMu.Unlock()
+		return u, nil
+	}
+	s.urlMu.Unlock()
+	u, err := s.Store.SignedGet(ctx, key, exp.Sub(now))
+	if err != nil {
+		return "", err
+	}
+	s.urlMu.Lock()
+	if s.urlExpiry.Equal(exp) {
+		s.urlCache[ck] = u
+	}
+	s.urlMu.Unlock()
+	return u, nil
 }
 
 func NewMomentService(d MomentDeps) *MomentService {
@@ -114,30 +163,61 @@ func maxBytesFor(kind string) int64 {
 	return maxPhotoBytes
 }
 
-// toView builds the client view of a moment. URLs are signed only for ready
-// moments and only ever point at moments/... objects, never raw uploads.
+// toView builds the client view of a moment, looking up its uploader. URLs
+// are signed only for ready moments and only ever point at moments/ objects,
+// never raw uploads.
 func (s *MomentService) toView(ctx context.Context, m *models.Moment, canDelete bool) (*MomentView, error) {
+	u, err := s.Users.GetByID(ctx, m.UploaderID)
+	if err != nil {
+		return nil, err
+	}
+	return s.viewWith(ctx, m, canDelete, u)
+}
+
+// viewWith is toView with the uploader already loaded (nil = unknown user).
+func (s *MomentService) viewWith(ctx context.Context, m *models.Moment, canDelete bool, u *models.User) (*MomentView, error) {
 	v := &MomentView{
 		ID: m.ID, DayID: m.DayID, PlanID: m.PlanID, Kind: m.Kind, Status: m.Status,
 		Caption: m.Caption, Width: m.Width, Height: m.Height, DurationMs: m.DurationMs,
 		CreatedAt: m.CreatedAt, CanDelete: canDelete,
 	}
-	u, err := s.Users.GetByID(ctx, m.UploaderID)
-	if err != nil {
-		return nil, err
-	}
 	if u != nil {
 		v.Uploader = &models.PublicProfile{Username: u.Username, DisplayName: u.DisplayName, AvatarURL: u.AvatarURL, Bio: u.Bio}
 	}
 	if m.Status == models.MomentReady {
-		if v.URL, err = s.Store.SignedGet(ctx, m.ObjectKey, momentViewURLTTL); err != nil {
+		var err error
+		if v.URL, err = s.signedGet(ctx, m.ObjectKey); err != nil {
 			return nil, err
 		}
-		if v.ThumbURL, err = s.Store.SignedGet(ctx, m.ThumbKey, momentViewURLTTL); err != nil {
+		if v.ThumbURL, err = s.signedGet(ctx, m.ThumbKey); err != nil {
 			return nil, err
 		}
 	}
 	return v, nil
+}
+
+// uploaders loads the uploaders of ms in a single query, keyed by user id.
+func (s *MomentService) uploaders(ctx context.Context, ms []models.Moment) (map[string]*models.User, error) {
+	seen := map[string]bool{}
+	var ids []string
+	for i := range ms {
+		if id := ms[i].UploaderID; id != "" && !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	out := make(map[string]*models.User, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	users, err := s.Users.GetByIDs(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for i := range users {
+		out[users[i].ID] = &users[i]
+	}
+	return out, nil
 }
 
 // checkCanPost: owner always; joined editor/traveler only when the trip lets
@@ -455,6 +535,12 @@ func (s *MomentService) List(ctx context.Context, viewerID, slug string) ([]Mome
 	} else if j != nil {
 		ownerID = j.OwnerID
 	}
+	type kept struct {
+		m         models.Moment
+		planID    string
+		canDelete bool
+	}
+	var keep []kept
 	for i := range ms {
 		m := &ms[i]
 		if m.Status != models.MomentReady || !visibleDay[m.DayID] {
@@ -473,11 +559,22 @@ func (s *MomentService) List(ctx context.Context, viewerID, slug string) ([]Mome
 			planID = ""
 		}
 		canDelete := viewerID != "" && (m.UploaderID == viewerID || (ownerID != "" && ownerID == viewerID))
-		mv, err := s.toView(ctx, m, canDelete)
+		keep = append(keep, kept{*m, planID, canDelete})
+	}
+	shown := make([]models.Moment, len(keep))
+	for i := range keep {
+		shown[i] = keep[i].m
+	}
+	users, err := s.uploaders(ctx, shown)
+	if err != nil {
+		return nil, err
+	}
+	for i := range keep {
+		mv, err := s.viewWith(ctx, &keep[i].m, keep[i].canDelete, users[keep[i].m.UploaderID])
 		if err != nil {
 			return nil, err
 		}
-		mv.PlanID = planID
+		mv.PlanID = keep[i].planID
 		out = append(out, *mv)
 	}
 	return out, nil
@@ -570,6 +667,7 @@ func (s *MomentService) ListMine(ctx context.Context, userID string) ([]MomentVi
 	}
 	out := []MomentView{}
 	trips := map[string]*models.Journey{}
+	var shown []models.Moment
 	for i := range ms {
 		m := &ms[i]
 		if m.Status != models.MomentReady {
@@ -585,10 +683,19 @@ func (s *MomentService) ListMine(ctx context.Context, userID string) ([]MomentVi
 		if j == nil {
 			continue
 		}
-		mv, err := s.toView(ctx, m, true)
+		shown = append(shown, *m)
+	}
+	users, err := s.uploaders(ctx, shown)
+	if err != nil {
+		return nil, err
+	}
+	for i := range shown {
+		m := &shown[i]
+		mv, err := s.viewWith(ctx, m, true, users[m.UploaderID])
 		if err != nil {
 			return nil, err
 		}
+		j := trips[m.JourneyID]
 		mv.Journey = &MomentJourney{Slug: j.Slug, Title: j.Title}
 		out = append(out, *mv)
 	}
