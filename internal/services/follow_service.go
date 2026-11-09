@@ -11,10 +11,17 @@ import (
 type FollowService struct {
 	users   repository.UserRepository
 	follows repository.FollowRepository
+	blocks  repository.BlockRepository // optional
 }
 
 func NewFollowService(users repository.UserRepository, follows repository.FollowRepository) *FollowService {
 	return &FollowService{users: users, follows: follows}
+}
+
+// WithBlocks makes Follow refuse block-related users (as if they didn't exist).
+func (s *FollowService) WithBlocks(b repository.BlockRepository) *FollowService {
+	s.blocks = b
+	return s
 }
 
 func (s *FollowService) user(ctx context.Context, username string) (*models.User, error) {
@@ -36,6 +43,15 @@ func (s *FollowService) Follow(ctx context.Context, followerID, username string)
 	}
 	if u.ID == followerID {
 		return &ValidationError{Message: "cannot follow yourself"}
+	}
+	if s.blocks != nil {
+		blocked, err := s.blocks.Blocked(ctx, followerID, u.ID)
+		if err != nil {
+			return err
+		}
+		if blocked {
+			return ErrUserNotFound
+		}
 	}
 	return s.follows.Follow(ctx, followerID, u.ID)
 }

@@ -38,11 +38,18 @@ var (
 )
 
 type UserService struct {
-	repo repository.UserRepository
+	repo   repository.UserRepository
+	blocks repository.BlockRepository // optional
 }
 
 func NewUserService(repo repository.UserRepository) *UserService {
 	return &UserService{repo: repo}
+}
+
+// WithBlocks lets PublicProfileFor hide users from those who blocked them.
+func (s *UserService) WithBlocks(b repository.BlockRepository) *UserService {
+	s.blocks = b
+	return s
 }
 
 func (s *UserService) GetByID(ctx context.Context, id string) (*models.User, error) {
@@ -54,6 +61,33 @@ func (s *UserService) GetByID(ctx context.Context, id string) (*models.User, err
 		return nil, ErrUserNotFound
 	}
 	return u, nil
+}
+
+// PublicProfileFor is GetPublicProfile as seen by viewerID ("" = anonymous):
+// a viewer blocked by the user gets ErrUserNotFound.
+func (s *UserService) PublicProfileFor(ctx context.Context, viewerID, username string) (*models.PublicProfile, error) {
+	p, err := s.GetPublicProfile(ctx, username)
+	if err != nil {
+		return nil, err
+	}
+	if s.blocks == nil || viewerID == "" {
+		return p, nil
+	}
+	u, err := s.repo.GetByUsername(ctx, strings.ToLower(username))
+	if err != nil {
+		return nil, err
+	}
+	if u == nil || u.ID == viewerID {
+		return p, nil
+	}
+	blocked, err := s.blocks.IsBlocking(ctx, u.ID, viewerID)
+	if err != nil {
+		return nil, err
+	}
+	if blocked {
+		return nil, ErrUserNotFound
+	}
+	return p, nil
 }
 
 func (s *UserService) GetPublicProfile(ctx context.Context, username string) (*models.PublicProfile, error) {

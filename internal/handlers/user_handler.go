@@ -37,7 +37,7 @@ func (h *UserHandler) UpdateMe(c *fiber.Ctx) error {
 }
 
 func (h *UserHandler) PublicProfile(c *fiber.Ctx) error {
-	profile, err := h.svc.GetPublicProfile(c.Context(), c.Params("username"))
+	profile, err := h.svc.PublicProfileFor(c.Context(), middleware.CurrentUserID(c), c.Params("username"))
 	if err != nil {
 		return respondError(c, err)
 	}

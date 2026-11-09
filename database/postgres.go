@@ -35,6 +35,7 @@ func Models() []any {
 		&models.JourneyMember{},
 		&models.InviteLink{},
 		&models.Follow{},
+		&models.Block{},
 		&models.Moment{},
 	}
 }

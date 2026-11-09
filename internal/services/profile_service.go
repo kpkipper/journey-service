@@ -18,6 +18,7 @@ type ProfileView struct {
 	User        models.PublicProfile `json:"user"`
 	Followers   int64                `json:"followers"`
 	Following   int64                `json:"following"`
+	IsBlocked   bool                 `json:"is_blocked"`   // the viewer blocked this user
 	IsFollowing bool                 `json:"is_following"` // the viewer follows this user
 	Now         *JourneyView         `json:"now"`          // a trip the viewer sees live; nil otherwise
 	Upcoming    []JourneyView        `json:"upcoming"`
@@ -52,6 +53,7 @@ type ProfileDeps struct {
 	Journeys repository.JourneyRepository
 	Members  repository.MemberRepository
 	Follows  repository.FollowRepository
+	Blocks   repository.BlockRepository // optional (nil = no blocks)
 	Privacy  *PrivacyService
 }
 
@@ -91,6 +93,23 @@ func (s *ProfileService) Get(ctx context.Context, viewerID, username string) (*P
 	}
 	if p.Followers, p.Following, err = countsOf(ctx, s.Follows, u.ID); err != nil {
 		return nil, err
+	}
+	if s.Blocks != nil && viewerID != "" && viewerID != u.ID {
+		blocked, err := s.Blocks.Blocked(ctx, viewerID, u.ID)
+		if err != nil {
+			return nil, err
+		}
+		if blocked {
+			mine, err := s.Blocks.IsBlocking(ctx, viewerID, u.ID)
+			if err != nil {
+				return nil, err
+			}
+			if !mine {
+				return nil, ErrUserNotFound // the viewer was blocked by this user
+			}
+			p.IsBlocked = true // empty profile; counts stay
+			return p, nil
+		}
 	}
 	if viewerID != "" && viewerID != u.ID {
 		if p.IsFollowing, err = s.Follows.IsFollowing(ctx, viewerID, u.ID); err != nil {
