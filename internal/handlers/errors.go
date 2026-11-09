@@ -23,7 +23,7 @@ func respondError(c *fiber.Ctx, err error) error {
 		return utils.Error(c, fiber.StatusNotFound, err.Error())
 	case errors.Is(err, services.ErrMemberNotFound), errors.Is(err, services.ErrInviteNotFound),
 		errors.Is(err, services.ErrDayNotFound), errors.Is(err, services.ErrPlanNotFound),
-		errors.Is(err, services.ErrMomentNotFound):
+		errors.Is(err, services.ErrMomentNotFound), errors.Is(err, services.ErrReportNotFound):
 		return utils.Error(c, fiber.StatusNotFound, err.Error())
 	case errors.Is(err, services.ErrNotFound):
 		return utils.Error(c, fiber.StatusNotFound, "journey not found")

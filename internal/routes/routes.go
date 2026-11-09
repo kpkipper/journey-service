@@ -7,7 +7,7 @@ import (
 
 // Register wires all routes. requireAuth is applied per route (not via group.Use)
 // so unmatched routes still return 404/405.
-func Register(app *fiber.App, j *handlers.JourneyHandler, a *handlers.AuthHandler, u *handlers.UserHandler, m *handlers.MemberHandler, it *handlers.ItineraryHandler, f *handlers.FollowHandler, p *handlers.ProfileHandler, mo *handlers.MomentHandler, requireAuth, optionalAuth fiber.Handler) {
+func Register(app *fiber.App, j *handlers.JourneyHandler, a *handlers.AuthHandler, u *handlers.UserHandler, m *handlers.MemberHandler, it *handlers.ItineraryHandler, f *handlers.FollowHandler, p *handlers.ProfileHandler, mo *handlers.MomentHandler, bl *handlers.BlockHandler, rp *handlers.ReportHandler, fd *handlers.FeedHandler, requireAuth, optionalAuth fiber.Handler) {
 	v1 := app.Group("/api/v1")
 
 	authG := v1.Group("/auth")
@@ -18,10 +18,15 @@ func Register(app *fiber.App, j *handlers.JourneyHandler, a *handlers.AuthHandle
 
 	v1.Get("/me", requireAuth, u.Me)
 	v1.Patch("/me", requireAuth, u.UpdateMe)
-	v1.Get("/users/:username", u.PublicProfile)
+	v1.Get("/users/:username", optionalAuth, u.PublicProfile)
 	v1.Get("/users/:username/profile", optionalAuth, p.Get)
 	v1.Post("/users/:username/follow", requireAuth, f.Follow)
 	v1.Delete("/users/:username/follow", requireAuth, f.Unfollow)
+	v1.Post("/users/:username/block", requireAuth, bl.Block)
+	v1.Delete("/users/:username/block", requireAuth, bl.Unblock)
+	v1.Post("/reports", requireAuth, rp.Create)
+	v1.Get("/feed", requireAuth, fd.Feed)
+	v1.Get("/feed/now", requireAuth, fd.Now)
 
 	// Static /me/* and /invites/* paths; none collides with a param route.
 	v1.Get("/me/invites", requireAuth, m.MyInvites)
@@ -29,6 +34,7 @@ func Register(app *fiber.App, j *handlers.JourneyHandler, a *handlers.AuthHandle
 	v1.Post("/me/invites/:id/decline", requireAuth, m.Decline)
 	v1.Get("/me/journeys", requireAuth, m.MyJourneys)
 	v1.Get("/me/moments", requireAuth, mo.Mine)
+	v1.Get("/me/blocks", requireAuth, bl.List)
 	v1.Post("/invites/join", requireAuth, m.JoinByLink)
 
 	v1.Patch("/moments/:id", requireAuth, mo.UpdateCaption)

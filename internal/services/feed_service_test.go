@@ -222,6 +222,8 @@ func TestFeed_MomentsGrouped(t *testing.T) {
 	assert.Len(t, g1.Moments.Thumbs, 4)
 	assert.True(t, g1.At.Equal(base.Add(4*time.Minute)))
 	assert.Equal(t, "b", g1.Actor.Username)
+	assert.NotContains(t, g1.ID, ":b:") // id carries a hashed token, not the username
+	assert.Regexp(t, `^moments_added:[^:]+:[0-9a-f]{12}:`, g1.ID)
 	assert.Equal(t, 1, g2.Moments.Count)
 	assert.True(t, g2.At.Equal(base.Add(time.Hour)))
 }

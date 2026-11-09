@@ -147,6 +147,7 @@ type MomentView struct {
 	URL        string                `json:"url"`
 	ThumbURL   string                `json:"thumb_url"`
 	Uploader   *models.PublicProfile `json:"uploader"`
+	UploaderID string                `json:"-"`
 	CreatedAt  time.Time             `json:"created_at"`
 	CanDelete  bool                  `json:"can_delete"`
 	Journey    *MomentJourney        `json:"journey,omitempty"`
@@ -180,7 +181,7 @@ func (s *MomentService) viewWith(ctx context.Context, m *models.Moment, canDelet
 	v := &MomentView{
 		ID: m.ID, DayID: m.DayID, PlanID: m.PlanID, Kind: m.Kind, Status: m.Status,
 		Caption: m.Caption, Width: m.Width, Height: m.Height, DurationMs: m.DurationMs,
-		CreatedAt: m.CreatedAt, CanDelete: canDelete,
+		CreatedAt: m.CreatedAt, CanDelete: canDelete, UploaderID: m.UploaderID,
 	}
 	if u != nil {
 		v.Uploader = &models.PublicProfile{Username: u.Username, DisplayName: u.DisplayName, AvatarURL: u.AvatarURL, Bio: u.Bio}

@@ -74,6 +74,15 @@ func New(d Deps) *fiber.App {
 	profileSvc := services.NewProfileService(services.ProfileDeps{
 		Users: userRepo, Journeys: journeyRepo, Members: memberRepo, Follows: followRepo, Blocks: blockRepo, Privacy: privacySvc,
 	})
+	blockSvc := services.NewBlockService(userRepo, blockRepo, followRepo)
+	reportSvc := services.NewReportService(services.ReportDeps{
+		Reports: repository.NewReportRepository(d.DB), Users: userRepo, Privacy: privacySvc,
+		Moments: momentSvc, Blocks: blockRepo, Now: d.Now,
+	})
+	feedSvc := services.NewFeedService(services.FeedDeps{
+		Journeys: journeyRepo, Members: memberRepo, Follows: followRepo, Blocks: blockRepo, Users: userRepo,
+		Moments: momentRepo, Privacy: privacySvc, MomentSvc: momentSvc, Clock: d.Now,
+	})
 	authSvc := services.NewAuthService(services.AuthDeps{
 		Users:   userRepo,
 		Auth:    authRepo,
@@ -103,6 +112,9 @@ func New(d Deps) *fiber.App {
 		handlers.NewFollowHandler(followSvc),
 		handlers.NewProfileHandler(profileSvc),
 		handlers.NewMomentHandler(momentSvc),
+		handlers.NewBlockHandler(blockSvc),
+		handlers.NewReportHandler(reportSvc),
+		handlers.NewFeedHandler(feedSvc),
 		middleware.RequireAuth(authSvc),
 		middleware.OptionalAuth(authSvc),
 	)

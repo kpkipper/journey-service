@@ -338,6 +338,40 @@ The profile shows the trips the user owns or has **joined** (not pending invites
 
 ---
 
+## Feed
+
+`GET /feed?before=&limit=` (login required) lists events derived on read from trips the viewer may see: those of people they follow, plus trips they own or joined. Event types: `trip_planned`, `trip_started`, `trip_completed`, `moments_added` (one item per uploader, trip day and local date). Newest first; `limit` must be an integer (default 20, max 50, otherwise `400`); `next_before` is an opaque cursor to pass as `before` (malformed cursor is `400`). Item ids are stable and do not contain usernames.
+
+`GET /feed/now` (login required) returns `{"travelers": [...]}`: followed people currently on a trip the viewer may see as live, one per person, with `day_number` and `total_days`.
+
+## Block
+
+| Method + path | Auth | Success |
+| ------------- | ---- | ------- |
+| `POST /users/:username/block` | yes | `204`; blocking twice is fine |
+| `DELETE /users/:username/block` | yes | `204`; unblocking someone not blocked is fine |
+| `GET /me/blocks` | yes | `200 {"users": [...]}` |
+
+Blocking yourself is `400`. Blocking removes follows in both directions. Block-related users cannot follow each other (`404 user not found`), a blocked user gets `404` on the blocker's profile endpoints (`GET /users/:username`, `/users/:username/profile`), and each side's trips, moments and feed entries are hidden from the other (existing trip members keep access).
+
+## Report
+
+`POST /reports` (login required) with `{"target_type": "user|journey|moment", "target": "<username|slug|moment id>", "reason": "spam|harassment|inappropriate|privacy|other", "note": "optional, max 500 chars"}`.
+
+- `201` for a new report, `200` if you already have an open report on the same target.
+- Response data is `{"id","target_type","reason","status","created_at"}`; the target id is never returned.
+- Targets that are missing or not visible to you are `404`; invalid reason/type is `400`; more than 20 reports in 24 hours is `429`.
+
+Moderation CLI (run on the server; log output goes to stderr, results to stdout):
+
+```
+./server reports              # list open reports
+./server resolve-report <id>  # mark a report resolved
+./server delete-moment <id>   # delete a reported moment
+```
+
+---
+
 ## Moments
 
 Photos (jpeg, png, webp, up to 10 MB) and short videos (mp4, mov, up to 100 MB and 60 s) attached to a trip day or plan. Files never pass through the API on upload: the client asks for a signed URL, uploads straight to storage, then completes the moment. The server strips metadata (EXIF/GPS), re-encodes and makes a thumbnail; raw files are never served. Signed upload URLs last 15 minutes and view URLs 30 to 90 minutes (they expire on the hour and are identical within an hour, so clients can cache them). Uploads left pending for over an hour are cleaned up every 30 minutes.

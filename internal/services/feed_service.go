@@ -3,7 +3,9 @@ package services
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"slices"
 	"strconv"
@@ -340,13 +342,13 @@ func (s *FeedService) momentEvents(ctx context.Context, viewerID string, trips [
 				continue
 			}
 			date := mv.CreatedAt.In(loc).Format("2006-01-02")
-			id := fmt.Sprintf("%s:%s:%s:%s:%s", FeedMomentsAdded, t.j.ID, mv.Uploader.Username, mv.DayID, date)
+			sum := sha256.Sum256([]byte(mv.UploaderID))
+			id := fmt.Sprintf("%s:%s:%s:%s:%s", FeedMomentsAdded, t.j.ID, hex.EncodeToString(sum[:])[:12], mv.DayID, date)
 			g := groups[id]
 			if g == nil {
 				g = &FeedItem{ID: id, Type: FeedMomentsAdded, Actor: *mv.Uploader, Trip: feedTripOf(v),
 					Companions: []models.PublicProfile{},
 					Moments:    &FeedMoments{DayID: mv.DayID, DayTitle: titles[mv.DayID], Thumbs: []string{}}}
-				g.Actor.Bio = ""
 				groups[id] = g
 				order = append(order, id)
 			}
