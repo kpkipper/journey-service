@@ -108,3 +108,24 @@ func TestHTTP_Report(t *testing.T) {
 	status, _, raw = e.do(t, "POST", api+"/reports", bob, `{bad`)
 	assert.Equal(t, 400, status, raw)
 }
+
+// Empty lists must serialise as [] (never null): the contract is an array.
+func TestHTTP_EmptyListsAreArrays(t *testing.T) {
+	e := newEnv(t)
+	fresh := e.named(t, "fresh@gmail.com", "fresh")
+	owner := e.named(t, "owner@gmail.com", "owner")
+	slug := e.trip(t, owner, "Quiet", "public", liveDates)
+
+	for _, c := range []struct{ path, want string }{
+		{"/feed", `"items":[]`},
+		{"/feed/now", `"travelers":[]`},
+		{"/me/blocks", `"users":[]`},
+		{"/me/moments", `"moments":[]`},
+		{"/journeys/" + slug + "/moments", `"moments":[]`},
+	} {
+		status, _, raw := e.do(t, "GET", api+c.path, fresh, "")
+		require.Equal(t, 200, status, c.path+raw)
+		assert.Contains(t, raw, c.want, c.path)
+		assert.NotContains(t, raw, "null,", c.path) // next_before is the only null, and it trails
+	}
+}

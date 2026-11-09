@@ -208,7 +208,7 @@ func (s *FeedService) Feed(ctx context.Context, viewerID, before string, limit i
 	}
 
 	now := s.Clock()
-	var items []FeedItem
+	items := []FeedItem{}
 	for _, t := range trips {
 		items = append(items, s.tripEvents(t, now, blockedNames)...)
 	}
