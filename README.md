@@ -531,7 +531,8 @@ cp .env.example .env
 | `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DBNAME`, `POSTGRES_SSLMODE` | | PostgreSQL connection |
 | `APP_WEB_URL` | | web app base URL, used in email login links |
 | `GOOGLE_CLIENT_ID` | | Google OAuth client ID used to verify Google ID tokens |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | | SMTP settings for sending login emails |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | | SMTP settings for sending login emails; port `465` uses implicit TLS, other ports use STARTTLS; the server refuses to send without TLS unless `SMTP_HOST` is a loopback address; each send gives up after 15 s |
+| `APP_CLIENT_IP_HEADER` | `X-Real-IP` | header holding the caller's IP behind the proxy (Railway sets `X-Real-IP`); used only for the per-IP login-email limit, falls back to the connection address when missing or not an IP |
 | `STORAGE_DRIVER` | `local` in development/test | `firebase` or `local`; must be `firebase` in any other `APP_ENV` (the server refuses to start otherwise) |
 | `FIREBASE_STORAGE_BUCKET`, `FIREBASE_SERVICE_ACCOUNT_JSON` | | bucket name and service-account key (raw JSON or base64) for `firebase` |
 | `LOCAL_STORAGE_DIR` | `./.data/media` | where the `local` driver keeps files |
@@ -540,6 +541,8 @@ cp .env.example .env
 ### Production
 
 Set these on the deployed service: `APP_ENV=production`, `STORAGE_DRIVER=firebase` with `FIREBASE_STORAGE_BUCKET` and `FIREBASE_SERVICE_ACCOUNT_JSON` (see [Moments / Firebase Storage](#moments--firebase-storage)), `APP_WEB_URL` (absolute http(s) URL), `GOOGLE_CLIENT_ID`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, and `POSTGRES_*`. The service refuses to start unless `APP_ENV` is `development` or `test` when `SMTP_HOST` is empty (the log mailer prints login links), and refuses to start with SMTP if `APP_WEB_URL` is not an absolute http(s) URL.
+
+Login emails are limited three ways: 5 per address per hour, 20 per client IP per hour (in memory, resets on restart; IPv6 counted per /64; without the IP header the first `X-Forwarded-For` hop is used, and a warning is logged if neither is present) and 200 in total per hour; past any of them `POST /auth/email/start` returns `429`. The total cap protects the SMTP account if the IP header is spoofed or shared. Expired sessions and login tokens older than a day are deleted at startup and every 6 hours.
 
 The service runs on **Railway** (Docker image from the `Dockerfile`, which includes `ffmpeg`/`ffprobe`). Set the variables above once in the Railway service's Variables tab; Railway keeps them across deploys. Before the first deploy of the Moments release, make sure at least these are set:
 

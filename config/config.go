@@ -42,6 +42,8 @@ type AppConfig struct {
 	Prefix string `envconfig:"APP_PREFIX"`
 	APIKey string `envconfig:"APP_API_KEY"`
 	WebURL string `envconfig:"APP_WEB_URL"`
+	// ClientIPHeader carries the caller's IP behind the proxy (Railway sets X-Real-IP).
+	ClientIPHeader string `envconfig:"APP_CLIENT_IP_HEADER" default:"X-Real-IP"`
 }
 
 type Postgres struct {

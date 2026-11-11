@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -169,4 +170,41 @@ func TestHTTP_CORSPreflight(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, resp.Header.Get("Access-Control-Allow-Headers"), "Authorization")
 	assert.Contains(t, resp.Header.Get("Access-Control-Allow-Methods"), "PATCH")
+}
+
+func TestHTTP_EmailStartLimitedPerIP(t *testing.T) {
+	e := newEnv(t)
+	start := func(ip, email string) int {
+		req := httptest.NewRequest("POST", "/api/v1/auth/email/start", strings.NewReader(`{"email":"`+email+`"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Real-IP", ip)
+		resp, err := e.app.Test(req)
+		require.NoError(t, err)
+		return resp.StatusCode
+	}
+	// Different addresses each time, so only the per-IP limit can stop them.
+	for i := 0; i < app.LoginEmailsPerIPPerHour; i++ {
+		require.Equal(t, http.StatusOK, start("203.0.113.7", fmt.Sprintf("p%d@gmail.com", i)), "request %d", i)
+	}
+	assert.Equal(t, http.StatusTooManyRequests, start("203.0.113.7", "next@gmail.com"))
+	assert.Equal(t, http.StatusOK, start("198.51.100.2", "other@gmail.com"))
+	assert.Len(t, e.mail.Sent, app.LoginEmailsPerIPPerHour+1)
+}
+
+func TestHTTP_EmailStartFallsBackToForwardedFor(t *testing.T) {
+	e := newEnv(t)
+	start := func(xff, email string) int {
+		req := httptest.NewRequest("POST", "/api/v1/auth/email/start", strings.NewReader(`{"email":"`+email+`"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Forwarded-For", xff)
+		resp, err := e.app.Test(req)
+		require.NoError(t, err)
+		return resp.StatusCode
+	}
+	for i := 0; i < app.LoginEmailsPerIPPerHour; i++ {
+		require.Equal(t, http.StatusOK, start("203.0.113.7, 10.0.0.1", fmt.Sprintf("p%d@gmail.com", i)), "request %d", i)
+	}
+	assert.Equal(t, http.StatusTooManyRequests, start("203.0.113.7, 10.0.0.1", "next@gmail.com"))
+	// Without X-Real-IP, callers are still told apart by their forwarded address.
+	assert.Equal(t, http.StatusOK, start("198.51.100.2, 10.0.0.1", "other@gmail.com"))
 }

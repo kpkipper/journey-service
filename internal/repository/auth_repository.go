@@ -17,4 +17,9 @@ type AuthRepository interface {
 	// the token was already used (guards against the link being opened twice concurrently).
 	MarkLoginTokenUsed(ctx context.Context, id string, at time.Time) (bool, error)
 	CountLoginTokensSince(ctx context.Context, email string, since time.Time) (int64, error)
+	// CountAllLoginTokensSince counts login links sent to anyone since the given time.
+	CountAllLoginTokensSince(ctx context.Context, since time.Time) (int64, error)
+	// DeleteExpired removes sessions that expired before now and login tokens created
+	// before tokensBefore; it returns how many of each were removed.
+	DeleteExpired(ctx context.Context, now, tokensBefore time.Time) (sessions, tokens int64, err error)
 }

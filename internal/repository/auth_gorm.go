@@ -72,3 +72,24 @@ func (r *authGorm) CountLoginTokensSince(ctx context.Context, email string, sinc
 		Count(&n).Error
 	return n, err
 }
+
+func (r *authGorm) CountAllLoginTokensSince(ctx context.Context, since time.Time) (int64, error) {
+	var n int64
+	err := r.db.WithContext(ctx).
+		Model(&models.LoginToken{}).
+		Where("created_at >= ?", since).
+		Count(&n).Error
+	return n, err
+}
+
+func (r *authGorm) DeleteExpired(ctx context.Context, now, tokensBefore time.Time) (int64, int64, error) {
+	s := r.db.WithContext(ctx).Where("expires_at < ?", now).Delete(&models.Session{})
+	if s.Error != nil {
+		return 0, 0, s.Error
+	}
+	t := r.db.WithContext(ctx).Where("created_at < ?", tokensBefore).Delete(&models.LoginToken{})
+	if t.Error != nil {
+		return s.RowsAffected, 0, t.Error
+	}
+	return s.RowsAffected, t.RowsAffected, nil
+}

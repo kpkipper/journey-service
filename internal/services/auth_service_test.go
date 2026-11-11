@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -174,4 +175,45 @@ func TestLogout(t *testing.T) {
 	_, err := e.svc.Authenticate(ctx, sess)
 	assert.ErrorIs(t, err, ErrUnauthorized)
 	assert.NoError(t, e.svc.Logout(ctx, "unknown"))
+}
+
+func TestStartEmailLogin_TotalLimitAcrossEmails(t *testing.T) {
+	e := newAuthEnv(t)
+	ctx := context.Background()
+	repo := repository.NewAuthRepository(e.db)
+	// Fill the hourly total with other people's links.
+	for i := 0; i < MaxLoginLinksPerHourTotal; i++ {
+		require.NoError(t, repo.CreateLoginToken(ctx, &models.LoginToken{
+			Email: fmt.Sprintf("u%d@gmail.com", i), TokenHash: fmt.Sprintf("fill%d", i),
+			ExpiresAt: e.clock.t.Add(LoginTokenTTL), CreatedAt: e.clock.t.Add(-time.Minute),
+		}))
+	}
+	err := e.svc.StartEmailLogin(ctx, "new@gmail.com")
+	assert.ErrorIs(t, err, ErrTooManyRequests)
+	assert.Empty(t, e.mail.Sent)
+
+	e.clock.advance(61 * time.Minute)
+	assert.NoError(t, e.svc.StartEmailLogin(ctx, "new@gmail.com"))
+}
+
+func TestPurgeExpired(t *testing.T) {
+	e := newAuthEnv(t)
+	ctx := context.Background()
+	tok, _ := e.login(t, "kip@gmail.com")
+	_, err := e.svc.Authenticate(ctx, tok)
+	require.NoError(t, err)
+
+	sessions, tokens, err := e.svc.PurgeExpired(ctx)
+	require.NoError(t, err)
+	assert.Zero(t, sessions)
+	assert.Zero(t, tokens)
+
+	e.clock.advance(SessionTTL + time.Hour)
+	sessions, tokens, err = e.svc.PurgeExpired(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), sessions)
+	assert.Equal(t, int64(1), tokens)
+	var n int64
+	require.NoError(t, e.db.Model(&models.Session{}).Count(&n).Error)
+	assert.Zero(t, n)
 }

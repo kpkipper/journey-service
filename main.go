@@ -173,8 +173,11 @@ func main() {
 		Store:      store,
 		LocalStore: localStore,
 		Video:      video,
+
+		ClientIPHeader: cfg.App.ClientIPHeader,
 	})
 	startMomentCleanup(db, store, video)
+	startAuthCleanup(db)
 
 	setupGracefulShutdown(app)
 
@@ -210,6 +213,27 @@ func startMomentCleanup(db *gorm.DB, store storage.Store, video media.VideoProce
 			} else if n > 0 {
 				logger.Get().Info().Int("removed", n).Msg("moment cleanup")
 			}
+		}
+	}()
+}
+
+// startAuthCleanup deletes expired sessions and old login tokens now and every 6 hours.
+func startAuthCleanup(db *gorm.DB) {
+	svc := services.NewAuthService(services.AuthDeps{Auth: repository.NewAuthRepository(db)})
+	purge := func() {
+		sessions, tokens, err := svc.PurgeExpired(context.Background())
+		if err != nil {
+			logger.Get().Error().Err(err).Msg("auth cleanup failed")
+		} else if sessions > 0 || tokens > 0 {
+			logger.Get().Info().Int64("sessions", sessions).Int64("login_tokens", tokens).Msg("auth cleanup")
+		}
+	}
+	go func() {
+		purge()
+		t := time.NewTicker(6 * time.Hour)
+		defer t.Stop()
+		for range t.C {
+			purge()
 		}
 	}()
 }

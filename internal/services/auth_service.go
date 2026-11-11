@@ -18,6 +18,11 @@ const (
 	SessionTTL           = 30 * 24 * time.Hour
 	LoginTokenTTL        = 15 * time.Minute
 	MaxLoginLinksPerHour = 5
+	// MaxLoginLinksPerHourTotal caps login emails to everyone, so a flood of requests for
+	// many different addresses can't get the SMTP account flagged for spam.
+	MaxLoginLinksPerHourTotal = 200
+	// LoginTokenRetention keeps used/expired login tokens long enough for the hourly limits.
+	LoginTokenRetention = 24 * time.Hour
 )
 
 var (
@@ -64,6 +69,14 @@ func (s *AuthService) StartEmailLogin(ctx context.Context, email string) error {
 		return err
 	}
 	if n >= MaxLoginLinksPerHour {
+		return ErrTooManyRequests
+	}
+	total, err := s.Auth.CountAllLoginTokensSince(ctx, now.Add(-time.Hour))
+	if err != nil {
+		return err
+	}
+	if total >= MaxLoginLinksPerHourTotal {
+		logger.Get().Warn().Int64("sent_last_hour", total).Msg("login email total limit reached")
 		return ErrTooManyRequests
 	}
 
@@ -254,4 +267,10 @@ func (s *AuthService) Logout(ctx context.Context, sessionToken string) error {
 		return nil
 	}
 	return s.Auth.DeleteSessionByHash(ctx, auth.HashToken(sessionToken))
+}
+
+// PurgeExpired deletes expired sessions and login tokens older than LoginTokenRetention.
+func (s *AuthService) PurgeExpired(ctx context.Context) (sessions, tokens int64, err error) {
+	now := s.Now()
+	return s.Auth.DeleteExpired(ctx, now, now.Add(-LoginTokenRetention))
 }

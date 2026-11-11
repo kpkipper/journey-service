@@ -29,6 +29,8 @@ type Deps struct {
 	LocalStore *storage.LocalStore  // non-nil mounts /media/local/* and raises BodyLimit
 	Video      media.VideoProcessor // nil interface = video uploads unavailable
 	TempDir    string               // "" = os.TempDir()
+
+	ClientIPHeader string // header carrying the caller's IP; "" = DefaultClientIPHeader
 }
 
 // New builds the repositories, services and handlers and returns the configured Fiber app.
@@ -103,6 +105,12 @@ func New(d Deps) *fiber.App {
 	}
 	app := fiber.New(cfg)
 	middleware.Register(app)
+	ipHeader := d.ClientIPHeader
+	if ipHeader == "" {
+		ipHeader = DefaultClientIPHeader
+	}
+	// Runs before the route of the same path (it calls c.Next()).
+	app.Post("/api/v1/auth/email/start", loginEmailLimiter(ipHeader))
 	routes.Register(app,
 		handlers.NewJourneyHandler(journeySvc, privacySvc),
 		handlers.NewAuthHandler(authSvc),
