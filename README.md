@@ -251,7 +251,7 @@ All endpoints are under `/api/v1` and require `Authorization: Bearer <token>`.
 | `GET /me/invites` | – | `200` pending invitations for the current user |
 | `POST /me/invites/:id/accept` | – | `200 {}` |
 | `POST /me/invites/:id/decline` | – | `200 {}` |
-| `GET /me/journeys` | – | `200` trips the user owns or has joined: `slug, title, destination, departure_date, return_date, cover_url, role`, newest `departure_date` first |
+| `GET /me/journeys` | – | `200` trips the user owns or has joined: `slug, title, destination, country, departure_date, return_date, cover_url, role`, newest `departure_date` first |
 
 Errors: `403` not allowed (the trip is visible to you but you may not do this), `404` unknown or hidden trip / member / invite, and `404 user not found` when the username on invite is empty or unknown, `409` already a member or trip full, `400` invalid role.
 

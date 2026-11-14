@@ -60,6 +60,7 @@ type MyJourney struct {
 	Slug          string            `json:"slug"`
 	Title         string            `json:"title"`
 	Destination   string            `json:"destination"`
+	Country       string            `json:"country"`
 	DepartureDate time.Time         `json:"departure_date"`
 	ReturnDate    time.Time         `json:"return_date"`
 	CoverURL      string            `json:"cover_url"`
@@ -267,7 +268,7 @@ func (s *MemberService) MyJourneys(ctx context.Context, userID string) ([]MyJour
 	add := func(j models.Journey, role string) {
 		seen[j.ID] = true
 		out = append(out, MyJourney{
-			Slug: j.Slug, Title: j.Title, Destination: j.Destination,
+			Slug: j.Slug, Title: j.Title, Destination: j.Destination, Country: j.Country,
 			DepartureDate: j.DepartureDate, ReturnDate: j.ReturnDate,
 			CoverURL: coverURL(ctx, s.Covers, &j), Role: role,
 			Status: tripstatus.Compute(j.DepartureDate, j.ReturnDate, j.Timezone, j.IsDraft, s.Now()),

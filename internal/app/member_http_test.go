@@ -229,6 +229,7 @@ func TestHTTP_MyJourneys(t *testing.T) {
 		assert.Equal(t, "Japan", m["title"])
 		assert.Contains(t, m, "cover_url")
 		assert.Contains(t, m, "departure_date")
+		assert.Equal(t, "Japan", m["country"])
 	}
 	assert.Equal(t, map[string]string{own: "owner", joined: "traveler"}, roles)
 }
