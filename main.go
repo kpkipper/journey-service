@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -141,20 +142,28 @@ func main() {
 		log.Warn().Msg("GOOGLE_CLIENT_ID is empty; Google login will be rejected")
 	}
 
+	mode, err := emailLoginMode(cfg.App.ENV, cfg.SMTP.Host, cfg.App.EmailLoginDisabled, cfg.Google.ClientID != "")
+	if err != nil {
+		log.Fatal().Str("app_env", cfg.App.ENV).Msg(err.Error())
+	}
+	// mail stays a nil interface when email login is off.
 	var mail mailer.Mailer
-	if cfg.SMTP.Host == "" {
-		if !allowLogMailer(cfg.App.ENV) {
-			log.Fatal().Str("app_env", cfg.App.ENV).Msg("SMTP_HOST must be set unless APP_ENV is development or test (the log mailer prints login links)")
-		}
+	switch mode {
+	case "log":
 		if !validWebURL(cfg.App.WebURL) {
 			log.Warn().Str("app_web_url", cfg.App.WebURL).Msg("APP_WEB_URL is not an absolute http(s) URL; login links will be broken")
 		}
 		mail = mailer.NewLogMailer()
-	} else {
+	case "smtp":
 		if !validWebURL(cfg.App.WebURL) {
 			log.Fatal().Str("app_web_url", cfg.App.WebURL).Msg("APP_WEB_URL must be an absolute http or https URL when SMTP is used")
 		}
 		mail = mailer.NewSMTPMailer(cfg.SMTP)
+	case "off":
+		log.Warn().Msg("email login is off (no SMTP_HOST, or EMAIL_LOGIN_DISABLED); only Google login works")
+		if !validWebURL(cfg.App.WebURL) {
+			log.Warn().Str("app_web_url", cfg.App.WebURL).Msg("APP_WEB_URL is not an absolute http(s) URL; invite links will be broken")
+		}
 	}
 
 	// A true nil interface (not a typed-nil *FFmpeg) when ffmpeg is missing.
@@ -166,13 +175,14 @@ func main() {
 	}
 
 	app := appPkg.New(appPkg.Deps{
-		DB:         db,
-		Google:     auth.NewGoogleVerifier(cfg.Google.ClientID),
-		Mailer:     mail,
-		WebURL:     cfg.App.WebURL,
-		Store:      store,
-		LocalStore: localStore,
-		Video:      video,
+		DB:            db,
+		Google:        auth.NewGoogleVerifier(cfg.Google.ClientID),
+		GoogleEnabled: cfg.Google.ClientID != "",
+		Mailer:        mail,
+		WebURL:        cfg.App.WebURL,
+		Store:         store,
+		LocalStore:    localStore,
+		Video:         video,
 
 		ClientIPHeader: cfg.App.ClientIPHeader,
 	})
@@ -248,6 +258,24 @@ func allowLogMailer(env string) bool {
 		return true
 	}
 	return false
+}
+
+// emailLoginMode picks how login links are sent: "smtp", "log" (printed, for
+// development and test) or "off" (Google login only). Outside development and
+// test, at least one way to log in must be configured.
+func emailLoginMode(env, smtpHost string, disabled, hasGoogle bool) (string, error) {
+	mode := "off"
+	switch {
+	case disabled:
+	case strings.TrimSpace(smtpHost) != "":
+		mode = "smtp"
+	case allowLogMailer(env):
+		mode = "log"
+	}
+	if mode == "off" && !hasGoogle && !allowLogMailer(env) {
+		return "", errors.New("no way to log in: set SMTP_HOST for email login, or GOOGLE_CLIENT_ID for Google login")
+	}
+	return mode, nil
 }
 
 // validWebURL reports whether s is an absolute http or https URL with a host.

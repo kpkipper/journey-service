@@ -208,3 +208,38 @@ func TestHTTP_EmailStartFallsBackToForwardedFor(t *testing.T) {
 	// Without X-Real-IP, callers are still told apart by their forwarded address.
 	assert.Equal(t, http.StatusOK, start("198.51.100.2, 10.0.0.1", "other@gmail.com"))
 }
+
+func TestHTTP_AuthMethods(t *testing.T) {
+	e := newEnv(t)
+	status, body, raw := e.do(t, "GET", "/api/v1/auth/methods", "", "")
+	require.Equal(t, 200, status, raw)
+	data := body["data"].(map[string]any)
+	assert.Equal(t, true, data["email"])
+	assert.Equal(t, false, data["google"])
+}
+
+func TestHTTP_EmailLoginOff(t *testing.T) {
+	now := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+	e := &env{now: &now, db: testutil.NewTestDB(t)}
+	e.app = app.New(app.Deps{
+		DB:            e.db,
+		Google:        &testutil.FakeGoogle{Identities: map[string]*auth.GoogleIdentity{}},
+		GoogleEnabled: true,
+		WebURL:        "http://web.test/",
+		Now:           func() time.Time { return now },
+	})
+
+	status, body, raw := e.do(t, "GET", "/api/v1/auth/methods", "", "")
+	require.Equal(t, 200, status, raw)
+	data := body["data"].(map[string]any)
+	assert.Equal(t, false, data["email"])
+	assert.Equal(t, true, data["google"])
+
+	status, _, raw = e.do(t, "POST", "/api/v1/auth/email/start", "", `{"email":"kip@gmail.com"}`)
+	assert.Equal(t, http.StatusForbidden, status)
+	assert.Contains(t, raw, "email login is off")
+
+	status, _, raw = e.do(t, "POST", "/api/v1/auth/email/verify", "", `{"token":"`+strings.Repeat("a", 64)+`"}`)
+	assert.Equal(t, http.StatusForbidden, status)
+	assert.Contains(t, raw, "email login is off")
+}

@@ -37,3 +37,28 @@ func TestValidWebURL(t *testing.T) {
 		}
 	}
 }
+
+func TestEmailLoginMode(t *testing.T) {
+	cases := []struct {
+		name                string
+		env, smtpHost       string
+		disabled, hasGoogle bool
+		want                string
+		wantErr             bool
+	}{
+		{"smtp set", "production", "smtp.example.com", false, false, "smtp", false},
+		{"smtp set but turned off", "production", "smtp.example.com", true, true, "off", false},
+		{"dev without smtp prints links", "development", "", false, false, "log", false},
+		{"dev turned off", "development", "", true, false, "off", false},
+		{"prod without smtp, google only", "production", "", false, true, "off", false},
+		{"prod with no way to log in", "production", "", false, false, "", true},
+		{"blank smtp host counts as unset", "production", "  ", false, false, "", true},
+		{"turned off with no google in prod", "production", "smtp.example.com", true, false, "", true},
+	}
+	for _, c := range cases {
+		got, err := emailLoginMode(c.env, c.smtpHost, c.disabled, c.hasGoogle)
+		if (err != nil) != c.wantErr || got != c.want {
+			t.Errorf("%s: emailLoginMode = %q, %v; want %q, err=%v", c.name, got, err, c.want, c.wantErr)
+		}
+	}
+}

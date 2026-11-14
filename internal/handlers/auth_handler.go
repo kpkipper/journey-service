@@ -29,6 +29,12 @@ func (h *AuthHandler) Google(c *fiber.Ctx) error {
 	return utils.Success(c, fiber.StatusOK, fiber.Map{"token": token, "user": user})
 }
 
+// Methods tells the web app which login buttons to show.
+func (h *AuthHandler) Methods(c *fiber.Ctx) error {
+	email, google := h.svc.Methods()
+	return utils.Success(c, fiber.StatusOK, fiber.Map{"email": email, "google": google})
+}
+
 func (h *AuthHandler) EmailStart(c *fiber.Ctx) error {
 	var in struct {
 		Email string `json:"email"`

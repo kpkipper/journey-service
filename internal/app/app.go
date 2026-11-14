@@ -21,9 +21,11 @@ import (
 type Deps struct {
 	DB     *gorm.DB
 	Google auth.GoogleVerifier
-	Mailer mailer.Mailer
-	WebURL string
-	Now    func() time.Time // nil = time.Now
+	// GoogleEnabled says GOOGLE_CLIENT_ID is set (reported by GET /auth/methods).
+	GoogleEnabled bool
+	Mailer        mailer.Mailer // nil = email login is off
+	WebURL        string
+	Now           func() time.Time // nil = time.Now
 
 	Store      storage.Store        // nil = in-memory store (tests)
 	LocalStore *storage.LocalStore  // non-nil mounts /media/local/* and raises BodyLimit
@@ -86,13 +88,14 @@ func New(d Deps) *fiber.App {
 		Moments: momentRepo, Privacy: privacySvc, MomentSvc: momentSvc, Clock: d.Now,
 	})
 	authSvc := services.NewAuthService(services.AuthDeps{
-		Users:   userRepo,
-		Auth:    authRepo,
-		UserSvc: userSvc,
-		Mailer:  d.Mailer,
-		Google:  d.Google,
-		WebURL:  strings.TrimRight(d.WebURL, "/"),
-		Now:     d.Now,
+		Users:         userRepo,
+		Auth:          authRepo,
+		UserSvc:       userSvc,
+		Mailer:        d.Mailer,
+		Google:        d.Google,
+		GoogleEnabled: d.GoogleEnabled,
+		WebURL:        strings.TrimRight(d.WebURL, "/"),
+		Now:           d.Now,
 	})
 
 	cfg := fiber.Config{

@@ -11,6 +11,7 @@ func Register(app *fiber.App, j *handlers.JourneyHandler, a *handlers.AuthHandle
 	v1 := app.Group("/api/v1")
 
 	authG := v1.Group("/auth")
+	authG.Get("/methods", a.Methods)
 	authG.Post("/google", a.Google)
 	authG.Post("/email/start", a.EmailStart)
 	authG.Post("/email/verify", a.EmailVerify)

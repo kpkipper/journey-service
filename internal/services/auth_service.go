@@ -29,16 +29,19 @@ var (
 	ErrInvalidToken    = errors.New("invalid or expired token")
 	ErrTooManyRequests = errors.New("too many requests")
 	ErrUnauthorized    = errors.New("unauthorized")
+	ErrEmailLoginOff   = errors.New("email login is off")
 )
 
 type AuthDeps struct {
 	Users   repository.UserRepository
 	Auth    repository.AuthRepository
 	UserSvc *UserService
-	Mailer  mailer.Mailer
+	Mailer  mailer.Mailer // nil = email login is off
 	Google  auth.GoogleVerifier
-	WebURL  string
-	Now     func() time.Time // nil = time.Now
+	// GoogleEnabled says Google login is configured; it only feeds Methods.
+	GoogleEnabled bool
+	WebURL        string
+	Now           func() time.Time // nil = time.Now
 }
 
 type AuthService struct {
@@ -56,7 +59,15 @@ func normalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
 }
 
+// Methods reports which login methods the web app should offer.
+func (s *AuthService) Methods() (email, google bool) {
+	return s.Mailer != nil, s.GoogleEnabled
+}
+
 func (s *AuthService) StartEmailLogin(ctx context.Context, email string) error {
+	if s.Mailer == nil {
+		return ErrEmailLoginOff
+	}
 	email = normalizeEmail(email)
 	addr, err := mail.ParseAddress(email)
 	if err != nil || addr.Address != email {
@@ -100,6 +111,9 @@ func (s *AuthService) StartEmailLogin(ctx context.Context, email string) error {
 }
 
 func (s *AuthService) VerifyEmailLogin(ctx context.Context, token string) (string, *models.User, error) {
+	if s.Mailer == nil {
+		return "", nil, ErrEmailLoginOff
+	}
 	if token == "" {
 		return "", nil, ErrInvalidToken
 	}

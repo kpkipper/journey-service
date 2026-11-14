@@ -56,9 +56,10 @@ Authorization: Bearer <token>
 
 | Method | Path                    | Auth | Description                                               |
 | ------ | ----------------------- | ---- | --------------------------------------------------------- |
+| GET    | `/api/v1/auth/methods`         | no   | which login methods are on: `{"email": bool, "google": bool}` |
 | POST   | `/api/v1/auth/google`          | no   | log in with a Google ID token                             |
-| POST   | `/api/v1/auth/email/start`     | no   | email a login link (valid 15 min, one use, 5 per hour)    |
-| POST   | `/api/v1/auth/email/verify`    | no   | exchange the emailed token for a session token            |
+| POST   | `/api/v1/auth/email/start`     | no   | email a login link (valid 15 min, one use, 5 per hour); `403` when email login is off |
+| POST   | `/api/v1/auth/email/verify`    | no   | exchange the emailed token for a session token; `403` when email login is off |
 | POST   | `/api/v1/auth/logout`          | yes  | revoke the current session                                |
 | GET    | `/api/v1/me`                   | yes  | current user                                              |
 | PATCH  | `/api/v1/me`                   | yes  | update `username`, `display_name`, `bio`, `avatar_url` (https, max 2048 bytes), `follow_approval` (bool) |
@@ -532,6 +533,7 @@ cp .env.example .env
 | `APP_WEB_URL` | | web app base URL, used in email login links |
 | `GOOGLE_CLIENT_ID` | | Google OAuth client ID used to verify Google ID tokens |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | | SMTP settings for sending login emails; port `465` uses implicit TLS, other ports use STARTTLS; the server refuses to send without TLS unless `SMTP_HOST` is a loopback address; each send gives up after 15 s |
+| `EMAIL_LOGIN_DISABLED` | `false` | `true` turns email login off (Google only); `/auth/email/*` then return `403 email login is off` |
 | `APP_CLIENT_IP_HEADER` | `X-Real-IP` | header holding the caller's IP behind the proxy (Railway sets `X-Real-IP`); used only for the per-IP login-email limit, falls back to the connection address when missing or not an IP |
 | `STORAGE_DRIVER` | `local` in development/test | `firebase` or `local`; must be `firebase` in any other `APP_ENV` (the server refuses to start otherwise) |
 | `FIREBASE_STORAGE_BUCKET`, `FIREBASE_SERVICE_ACCOUNT_JSON` | | bucket name and service-account key (raw JSON or base64) for `firebase` |
@@ -540,7 +542,9 @@ cp .env.example .env
 
 ### Production
 
-Set these on the deployed service: `APP_ENV=production`, `STORAGE_DRIVER=firebase` with `FIREBASE_STORAGE_BUCKET` and `FIREBASE_SERVICE_ACCOUNT_JSON` (see [Moments / Firebase Storage](#moments--firebase-storage)), `APP_WEB_URL` (absolute http(s) URL), `GOOGLE_CLIENT_ID`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, and `POSTGRES_*`. The service refuses to start unless `APP_ENV` is `development` or `test` when `SMTP_HOST` is empty (the log mailer prints login links), and refuses to start with SMTP if `APP_WEB_URL` is not an absolute http(s) URL.
+Set these on the deployed service: `APP_ENV=production`, `STORAGE_DRIVER=firebase` with `FIREBASE_STORAGE_BUCKET` and `FIREBASE_SERVICE_ACCOUNT_JSON` (see [Moments / Firebase Storage](#moments--firebase-storage)), `APP_WEB_URL` (absolute http(s) URL), `GOOGLE_CLIENT_ID`, `POSTGRES_*`, and optionally `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` for email login.
+
+SMTP is optional. Without `SMTP_HOST` (or with `EMAIL_LOGIN_DISABLED=true`) email login is off and only Google login works (the web app also needs `NEXT_PUBLIC_GOOGLE_CLIENT_ID`); in `development` and `test` an empty `SMTP_HOST` prints login links to the log instead. The service refuses to start when there is no way to log in (email login off and `GOOGLE_CLIENT_ID` empty, outside development/test), and refuses to start with SMTP if `APP_WEB_URL` is not an absolute http(s) URL.
 
 Login emails are limited three ways: 5 per address per hour, 20 per client IP per hour (in memory, resets on restart; IPv6 counted per /64; without the IP header the first `X-Forwarded-For` hop is used, and a warning is logged if neither is present) and 200 in total per hour; past any of them `POST /auth/email/start` returns `429`. The total cap protects the SMTP account if the IP header is spoofed or shared. Expired sessions and login tokens older than a day are deleted at startup and every 6 hours.
 
@@ -552,7 +556,8 @@ The service runs on **Railway** (Docker image from the `Dockerfile`, which inclu
 | `STORAGE_DRIVER` | `firebase` |
 | `FIREBASE_STORAGE_BUCKET` | your bucket name |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | the service-account key, base64-encoded |
-| `APP_WEB_URL`, `GOOGLE_CLIENT_ID`, `SMTP_*`, `POSTGRES_*` | as above |
+| `APP_WEB_URL`, `GOOGLE_CLIENT_ID`, `POSTGRES_*` | as above |
+| `SMTP_*` | optional; without them email login is off |
 
 Use base64 for `FIREBASE_SERVICE_ACCOUNT_JSON` on Railway: the key's `private_key` contains newlines and quotes that are easy to mangle in a variables editor. Encode it with `base64 < key.json | tr -d '\n'` (the server accepts raw JSON or base64).
 
