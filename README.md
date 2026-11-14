@@ -587,7 +587,7 @@ go run . assign-legacy-owner <username>
 
 ## Getting Started
 
-**Requirements:** Go 1.24+, PostgreSQL
+**Requirements:** Go 1.26+, PostgreSQL
 
 ```bash
 # Install dependencies

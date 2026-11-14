@@ -65,6 +65,10 @@ func jpegWithExif(t *testing.T) []byte {
 func (e *env) rawReq(t *testing.T, method, target string, hdr map[string]string, body []byte) (int, string, []byte) {
 	t.Helper()
 	req := httptest.NewRequest(method, target, bytes.NewReader(body))
+	// fasthttp rejects HTTP/1.1 requests without a Host header (browsers always send one).
+	// app.Test dumps the request and drops Host when the request line is an absolute URL,
+	// so send the path in the request line; req.Host still carries the host.
+	req.RequestURI = req.URL.RequestURI()
 	for k, v := range hdr {
 		req.Header.Set(k, v)
 	}
