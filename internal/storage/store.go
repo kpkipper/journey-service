@@ -1,7 +1,8 @@
 // Package storage abstracts the private object store that holds moment media.
 //
 // Raw browser uploads live at uploads/<journeyID>/<momentID> and are never
-// served; processed files live at moments/<journeyID>/<momentID>/<name>.
+// served; processed files live at moments/<journeyID>/<momentID>/<name>, and
+// trip cover images at covers/<journeyID>/<coverID>.jpg.
 package storage
 
 import (
@@ -48,8 +49,13 @@ func MomentKey(journeyID, momentID, name string) string {
 	return "moments/" + journeyID + "/" + momentID + "/" + name
 }
 
+// CoverKey is where a processed trip cover image lives.
+func CoverKey(journeyID, coverID string) string {
+	return "covers/" + journeyID + "/" + coverID + ".jpg"
+}
+
 // Raw uploads have no file name; processed files must have one.
-var keyRe = regexp.MustCompile(`^(uploads/[0-9a-z]+/[0-9a-z]+|moments/[0-9a-z]+/[0-9a-z]+/[a-z]+\.(jpg|mp4))$`)
+var keyRe = regexp.MustCompile(`^(uploads/[0-9a-z]+/[0-9a-z]+|moments/[0-9a-z]+/[0-9a-z]+/[a-z]+\.(jpg|mp4)|covers/[0-9a-z]+/[0-9a-z]+\.jpg)$`)
 
 func validKey(key string) bool { return keyRe.MatchString(key) }
 
@@ -61,9 +67,9 @@ func checkPutKey(key string) error {
 	return nil
 }
 
-// checkGetKey: signed downloads may only target processed moments/ keys, never raw uploads.
+// checkGetKey: signed downloads may only target processed moments/ and covers/ keys, never raw uploads.
 func checkGetKey(key string) error {
-	if !validKey(key) || !strings.HasPrefix(key, "moments/") {
+	if !validKey(key) || !(strings.HasPrefix(key, "moments/") || strings.HasPrefix(key, "covers/")) {
 		return ErrInvalidKey
 	}
 	return nil

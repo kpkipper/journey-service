@@ -64,6 +64,7 @@ type PrivacyDeps struct {
 	Follows repository.FollowRepository
 	Members repository.MemberRepository
 	Users   repository.UserRepository
+	Covers  CoverResolver    // optional; nil shows only linked cover_url values
 	Now     func() time.Time // defaults to time.Now
 }
 
@@ -181,7 +182,7 @@ func (s *PrivacyService) view(ctx context.Context, viewerID string, a *Access) (
 	status := tripstatus.Compute(j.DepartureDate, j.ReturnDate, j.Timezone, j.IsDraft, s.Now())
 
 	v := &JourneyView{
-		ID: j.ID, Slug: j.Slug, Title: j.Title, Destination: j.Destination, Country: j.Country, CoverURL: j.CoverURL,
+		ID: j.ID, Slug: j.Slug, Title: j.Title, Destination: j.Destination, Country: j.Country, CoverURL: coverURL(ctx, s.Covers, j),
 		Visibility: j.Visibility,
 		Owner:      owner.profile,
 		Role:       a.Role,

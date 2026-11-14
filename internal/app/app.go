@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"os"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/kpkipper/journey-service/internal/routes"
 	"github.com/kpkipper/journey-service/internal/services"
 	"github.com/kpkipper/journey-service/internal/storage"
+	"github.com/kpkipper/journey-service/pkg/logger"
 	"gorm.io/gorm"
 )
 
@@ -45,15 +47,16 @@ func New(d Deps) *fiber.App {
 	followRepo := repository.NewFollowRepository(d.DB)
 	blockRepo := repository.NewBlockRepository(d.DB)
 	accessSvc := services.NewAccessService(journeyRepo, memberRepo).WithFollows(followRepo).WithBlocks(blockRepo)
-	privacySvc := services.NewPrivacyService(services.PrivacyDeps{
-		Access: accessSvc, Follows: followRepo, Members: memberRepo, Users: userRepo, Now: d.Now,
-	})
-	itineraryRepo := repository.NewItineraryRepository(d.DB)
-	momentRepo := repository.NewMomentRepository(d.DB)
 	store := d.Store
 	if store == nil {
 		store = storage.NewMemoryStore()
 	}
+	coverSvc := services.NewCoverService(services.CoverDeps{Access: accessSvc, Journeys: journeyRepo, Store: store, Now: d.Now})
+	privacySvc := services.NewPrivacyService(services.PrivacyDeps{
+		Access: accessSvc, Follows: followRepo, Members: memberRepo, Users: userRepo, Covers: coverSvc, Now: d.Now,
+	})
+	itineraryRepo := repository.NewItineraryRepository(d.DB)
+	momentRepo := repository.NewMomentRepository(d.DB)
 	tempDir := d.TempDir
 	if tempDir == "" {
 		tempDir = os.TempDir()
@@ -62,7 +65,13 @@ func New(d Deps) *fiber.App {
 		Access: accessSvc, Privacy: privacySvc, Moments: momentRepo, Itinerary: itineraryRepo,
 		Users: userRepo, Blocks: blockRepo, Store: store, Video: d.Video, TempDir: tempDir, Now: d.Now,
 	})
-	journeySvc := services.NewJourneyService(journeyRepo, accessSvc).WithMoments(momentRepo, momentSvc.DeleteForJourney)
+	journeySvc := services.NewJourneyService(journeyRepo, accessSvc).WithMoments(momentRepo, func(ctx context.Context, journeyID string) error {
+		// Best effort, like the moments: a leftover cover file is only storage.
+		if err := coverSvc.DeleteForJourney(ctx, journeyID); err != nil {
+			logger.Get().Error().Err(err).Str("journey", journeyID).Msg("delete trip cover")
+		}
+		return momentSvc.DeleteForJourney(ctx, journeyID)
+	})
 	itinerarySvc := services.NewItineraryService(accessSvc, itineraryRepo, journeyRepo, momentRepo)
 	memberSvc := services.NewMemberService(services.MemberDeps{
 		Access:   accessSvc,
@@ -70,6 +79,7 @@ func New(d Deps) *fiber.App {
 		Members:  memberRepo,
 		Users:    userRepo,
 		Blocks:   blockRepo,
+		Covers:   coverSvc,
 		WebURL:   strings.TrimRight(d.WebURL, "/"),
 		Now:      d.Now,
 	})
@@ -126,6 +136,7 @@ func New(d Deps) *fiber.App {
 		handlers.NewBlockHandler(blockSvc),
 		handlers.NewReportHandler(reportSvc),
 		handlers.NewFeedHandler(feedSvc),
+		handlers.NewCoverHandler(coverSvc),
 		middleware.RequireAuth(authSvc),
 		middleware.OptionalAuth(authSvc),
 	)

@@ -202,6 +202,13 @@ func TestLocal_SignedKeyPrefixes(t *testing.T) {
 	s, _, _ := newLocal(t)
 	_, err := s.SignedPut(ctx, "moments/j1/m1/full.jpg", "image/jpeg", 1, time.Minute)
 	require.ErrorIs(t, err, ErrInvalidKey)
+	// Covers are written only by the server, never by a signed browser upload.
+	_, err = s.SignedPut(ctx, CoverKey("j1", "c1"), "image/jpeg", 1, time.Minute)
+	require.ErrorIs(t, err, ErrInvalidKey)
+	_, err = s.SignedGet(ctx, CoverKey("j1", "c1"), time.Minute)
+	require.NoError(t, err)
+	_, err = s.SignedGet(ctx, "covers/j1/c1.png", time.Minute)
+	require.ErrorIs(t, err, ErrInvalidKey)
 }
 
 func TestLocal_GetSupportsRange(t *testing.T) {

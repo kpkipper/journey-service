@@ -26,15 +26,17 @@ const (
 )
 
 type Journey struct {
-	ID               string         `gorm:"type:varchar(10);primaryKey" json:"id"`
-	Slug             string         `gorm:"type:varchar(100);uniqueIndex" json:"slug"`
-	OwnerID          string         `gorm:"type:varchar(10);index" json:"owner_id"`
-	Title            string         `gorm:"not null" json:"title"`
-	Destination      string         `gorm:"not null" json:"destination"`
-	Country          string         `json:"country"`
-	DepartureDate    time.Time      `gorm:"not null" json:"departure_date"`
-	ReturnDate       time.Time      `gorm:"not null" json:"return_date"`
-	CoverURL         string         `json:"cover_url"`
+	ID            string    `gorm:"type:varchar(10);primaryKey" json:"id"`
+	Slug          string    `gorm:"type:varchar(100);uniqueIndex" json:"slug"`
+	OwnerID       string    `gorm:"type:varchar(10);index" json:"owner_id"`
+	Title         string    `gorm:"not null" json:"title"`
+	Destination   string    `gorm:"not null" json:"destination"`
+	Country       string    `json:"country"`
+	DepartureDate time.Time `gorm:"not null" json:"departure_date"`
+	ReturnDate    time.Time `gorm:"not null" json:"return_date"`
+	CoverURL      string    `json:"cover_url"`
+	// CoverKey is an uploaded cover in storage (covers/...); it wins over CoverURL.
+	CoverKey         string         `gorm:"type:varchar(80);not null;default:''" json:"-"`
 	EditorsCanInvite bool           `gorm:"not null;default:false" json:"editors_can_invite"`
 	MembersCanPost   bool           `gorm:"not null;default:true" json:"members_can_post"`
 	Visibility       string         `gorm:"type:varchar(10);not null;default:'followers'" json:"visibility"`

@@ -30,6 +30,7 @@ type MemberDeps struct {
 	Members  repository.MemberRepository
 	Users    repository.UserRepository
 	Blocks   repository.BlockRepository // optional (nil = no blocks)
+	Covers   CoverResolver              // optional; nil shows only linked cover_url values
 	WebURL   string
 	Now      func() time.Time
 }
@@ -268,7 +269,7 @@ func (s *MemberService) MyJourneys(ctx context.Context, userID string) ([]MyJour
 		out = append(out, MyJourney{
 			Slug: j.Slug, Title: j.Title, Destination: j.Destination,
 			DepartureDate: j.DepartureDate, ReturnDate: j.ReturnDate,
-			CoverURL: j.CoverURL, Role: role,
+			CoverURL: coverURL(ctx, s.Covers, &j), Role: role,
 			Status: tripstatus.Compute(j.DepartureDate, j.ReturnDate, j.Timezone, j.IsDraft, s.Now()),
 		})
 	}

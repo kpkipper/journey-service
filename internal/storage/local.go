@@ -173,8 +173,8 @@ func (s *LocalStore) handleGet(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	// Raw uploads are never served.
-	if !strings.HasPrefix(key, "moments/") {
+	// Raw uploads are never served; only processed moments and covers are.
+	if checkGetKey(key) != nil {
 		return fiber.ErrForbidden
 	}
 	p, _ := s.file(key)

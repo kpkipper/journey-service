@@ -97,6 +97,10 @@ func (s *ItineraryService) PatchJourney(ctx context.Context, userID, slug string
 		fields["country"] = *p.Country
 	}
 	if p.CoverURL != nil {
+		// An uploaded cover wins over cover_url, so changing the link would silently do nothing.
+		if j.CoverKey != "" {
+			return nil, ErrCoverUploaded
+		}
 		if *p.CoverURL != "" && !validHTTPSURL(*p.CoverURL) {
 			return nil, &ValidationError{Message: "cover_url must be an https URL of at most 2048 bytes"}
 		}

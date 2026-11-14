@@ -124,3 +124,20 @@ func (r *journeyGorm) ListByOwners(ctx context.Context, ownerIDs []string, limit
 	}
 	return journeys, q.Find(&journeys).Error
 }
+
+func (r *journeyGorm) SwapCoverKey(ctx context.Context, journeyID, prev, next string) (bool, error) {
+	res := r.db.WithContext(ctx).Model(&models.Journey{}).
+		Where("id = ? AND cover_key = ?", journeyID, prev).
+		Updates(map[string]any{"cover_key": next, "cover_url": ""})
+	return res.RowsAffected > 0, res.Error
+}
+
+func (r *journeyGorm) CoverKeyOf(ctx context.Context, journeyID string) (string, error) {
+	var keys []string
+	err := r.db.WithContext(ctx).Unscoped().Model(&models.Journey{}).
+		Where("id = ?", journeyID).Pluck("cover_key", &keys).Error
+	if err != nil || len(keys) == 0 {
+		return "", err
+	}
+	return keys[0], nil
+}
